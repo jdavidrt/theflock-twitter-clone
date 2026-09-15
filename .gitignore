@@ -1,0 +1,151 @@
+# ---------------------------------------------------------------------------
+# Claude Code / AI tooling
+# ---------------------------------------------------------------------------
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.claude/settings.json
+.claude/settings.local.json
+.claude/skills/
+.claude/agents/
+.claude/commands/
+
+# ---------------------------------------------------------------------------
+# Environment / secrets
+# (.env.example is intentionally NOT ignored — it is required by the runbook)
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# ---------------------------------------------------------------------------
+# Node / React / TypeScript (frontend)
+# ---------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+.yarn/
+.npm/
+dist/
+build/
+out/
+.vite/
+.cache/
+.parcel-cache/
+.turbo/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+coverage/
+.nyc_output/
+storybook-static/
+
+# Test runners (Vitest / Playwright / Cypress)
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+
+# ---------------------------------------------------------------------------
+# Go (backend)
+# ---------------------------------------------------------------------------
+# Compiled binaries and test artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/
+# Go coverage output
+*.cover
+coverage.txt
+coverage.html
+coverage.out
+cover.out
+# Go workspace file (per-developer)
+go.work
+go.work.sum
+# Air / hot-reload temp dirs
+tmp/
+# Vendored deps (remove this line if you decide to commit vendor/)
+vendor/
+
+# ---------------------------------------------------------------------------
+# MySQL / database
+# ---------------------------------------------------------------------------
+*.sql.gz
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+mysql-data/
+db-data/
+data/mysql/
+*.ibd
+*.frm
+*.MYD
+*.MYI
+ib_logfile*
+ibdata*
+mysql.sock
+mysqld.pid
+
+# ---------------------------------------------------------------------------
+# Docker
+# ---------------------------------------------------------------------------
+docker-compose.override.yml
+.docker/
+
+# ---------------------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---------------------------------------------------------------------------
+# Editors / IDEs
+# ---------------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+*~
+.history/
+
+# ---------------------------------------------------------------------------
+# OS
+# ---------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+*.bak
+*.orig
+*.tmp
+.scratch/
+uploads/
+settings.json
