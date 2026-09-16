@@ -1,0 +1,39 @@
+.home {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin-inline: auto;
+  padding: var(--space-4);
+}
+
+.home__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.home__subtitle {
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 640px) {
+  .home {
+    padding: var(--space-6);
+  }
+
+  .home__title {
+    font-size: 1.5rem;
+  }
+
+  .home__subtitle {
+    font-size: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .home {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
