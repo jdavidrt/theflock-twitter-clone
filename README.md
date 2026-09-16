@@ -34,7 +34,7 @@ A full-stack Twitter/X clone built for The Flock's technical challenge: custom a
 - Docker Compose — full stack up with one command
 
 **Explicitly out of scope for this delivery:** real-time updates, image uploads, notifications. See [Known Trade-offs & Limitations](#known-trade-offs--limitations).
-
+ 
 ---
 
 ## Technology Stack & Justification
