@@ -17,6 +17,8 @@ import (
 
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/config"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/httpapi"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/sample"
 )
 
 func main() {
@@ -38,6 +40,10 @@ func run() error {
 	logger := newLogger(cfg)
 	if loaded != "" {
 		logger.Info("loaded environment file", "path", loaded)
+	}
+
+	if err := loadStore(cfg, logger); err != nil {
+		return err
 	}
 
 	srv := &http.Server{
@@ -71,6 +77,30 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// loadStore builds the configured store and loads the sample data into it, logging what was
+// loaded (D-66). The store built here is not yet wired into the handler — that lands with
+// the first service in Step 3; today this only proves boot-time loading works.
+func loadStore(cfg config.Config, logger *slog.Logger) error {
+	switch cfg.Store {
+	case config.StoreMemory:
+		st := memory.New()
+		counts, err := sample.Load(cfg.SampleDataPath, cfg.BcryptCost(), st)
+		if err != nil {
+			return fmt.Errorf("loading sample data from %s: %w", cfg.SampleDataPath, err)
+		}
+		logger.Info("loaded sample data",
+			"store", cfg.Store,
+			"users", counts.Users,
+			"tweets", counts.Tweets,
+			"follows", counts.Follows,
+			"likes", counts.Likes,
+		)
+		return nil
+	default:
+		return fmt.Errorf("unsupported STORE %q", cfg.Store)
+	}
 }
 
 // newLogger follows D-57: text in development, JSON in production, silent in test.

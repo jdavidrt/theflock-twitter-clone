@@ -20,7 +20,7 @@
     "test": "npm run test:server && npm run test:client",
     "test:server": "cd server && go test ./...",
     "test:client": "npm run test --workspace=client",
-    "test:coverage": "cd server && go test ./internal/... -coverprofile=coverage.out -covermode=atomic && go tool cover -func=coverage.out",
+    "test:coverage": "cd server && go test ./internal/... -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic && go tool cover -func=coverage.out",
     "lint": "eslint . && npm run lint:server",
     "lint:server": "cd server && go vet ./...",
     "format": "prettier --write . && npm run format:server",

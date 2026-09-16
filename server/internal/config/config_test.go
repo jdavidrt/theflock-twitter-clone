@@ -28,15 +28,23 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.IsTest() || cfg.IsProduction() {
 		t.Error("development config must report neither IsTest nor IsProduction")
 	}
+	if cfg.Store != StoreMemory {
+		t.Errorf("Store = %q, want %q", cfg.Store, StoreMemory)
+	}
+	if cfg.SampleDataPath != DefaultSampleDataPath {
+		t.Errorf("SampleDataPath = %q, want %q", cfg.SampleDataPath, DefaultSampleDataPath)
+	}
 }
 
 func TestLoadExplicitValues(t *testing.T) {
 	t.Parallel()
 	cfg, err := Load(MapLookup(map[string]string{
-		"PORT":          "8080",
-		"APP_ENV":       "test",
-		"JWT_SECRET":    validSecret,
-		"COOKIE_SECURE": "true",
+		"PORT":             "8080",
+		"APP_ENV":          "test",
+		"JWT_SECRET":       validSecret,
+		"COOKIE_SECURE":    "true",
+		"STORE":            "memory",
+		"SAMPLE_DATA_PATH": "./testdata/sample.json",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -50,21 +58,48 @@ func TestLoadExplicitValues(t *testing.T) {
 	if !cfg.CookieSecure {
 		t.Error("CookieSecure = false, want true")
 	}
+	if cfg.SampleDataPath != "./testdata/sample.json" {
+		t.Errorf("SampleDataPath = %q, want ./testdata/sample.json", cfg.SampleDataPath)
+	}
 }
 
 func TestLoadBlankValuesMeanDefault(t *testing.T) {
 	t.Parallel()
 	cfg, err := Load(MapLookup(map[string]string{
-		"PORT":          "   ",
-		"APP_ENV":       "",
-		"COOKIE_SECURE": "",
-		"JWT_SECRET":    validSecret,
+		"PORT":             "   ",
+		"APP_ENV":          "",
+		"COOKIE_SECURE":    "",
+		"JWT_SECRET":       validSecret,
+		"STORE":            "",
+		"SAMPLE_DATA_PATH": "  ",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cfg.Port != DefaultPort || cfg.AppEnv != EnvDevelopment || cfg.CookieSecure {
 		t.Errorf("blank values should fall back to defaults, got %+v", cfg)
+	}
+	if cfg.Store != StoreMemory || cfg.SampleDataPath != DefaultSampleDataPath {
+		t.Errorf("blank STORE/SAMPLE_DATA_PATH should fall back to defaults, got %+v", cfg)
+	}
+}
+
+func TestBcryptCost(t *testing.T) {
+	t.Parallel()
+	prod, err := Load(MapLookup(map[string]string{"JWT_SECRET": validSecret}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := prod.BcryptCost(); got != 12 {
+		t.Errorf("development BcryptCost() = %d, want 12", got)
+	}
+
+	test, err := Load(MapLookup(map[string]string{"JWT_SECRET": validSecret, "APP_ENV": "test"}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := test.BcryptCost(); got != 4 {
+		t.Errorf("test BcryptCost() = %d, want 4", got)
 	}
 }
 
@@ -96,6 +131,7 @@ func TestLoadErrors(t *testing.T) {
 		{"port too large", map[string]string{"JWT_SECRET": validSecret, "PORT": "70000"}, []string{"PORT"}},
 		{"unknown env", map[string]string{"JWT_SECRET": validSecret, "APP_ENV": "staging"}, []string{"APP_ENV", `"staging"`}},
 		{"bad cookie flag", map[string]string{"JWT_SECRET": validSecret, "COOKIE_SECURE": "yes please"}, []string{"COOKIE_SECURE"}},
+		{"unknown store", map[string]string{"JWT_SECRET": validSecret, "STORE": "postgres"}, []string{"STORE", `"postgres"`}},
 		{"all problems reported together", map[string]string{"PORT": "x", "APP_ENV": "y", "COOKIE_SECURE": "z"}, []string{"PORT", "APP_ENV", "COOKIE_SECURE", "JWT_SECRET"}},
 	}
 	for _, tc := range tests {

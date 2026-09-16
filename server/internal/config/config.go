@@ -25,12 +25,23 @@ const MinJWTSecretLen = 32
 // DefaultPort is used when PORT is unset or blank.
 const DefaultPort = 3000
 
+// Store backend names accepted in STORE (D-66). StoreSQLite arrives in Step 11.
+const (
+	StoreMemory = "memory"
+)
+
+// DefaultSampleDataPath is used when SAMPLE_DATA_PATH is unset or blank (D-43), relative to
+// the server's working directory.
+const DefaultSampleDataPath = "./data/sample.json"
+
 // Config is the fully validated runtime configuration.
 type Config struct {
-	Port         int
-	AppEnv       string
-	JWTSecret    string
-	CookieSecure bool
+	Port           int
+	AppEnv         string
+	JWTSecret      string
+	CookieSecure   bool
+	Store          string
+	SampleDataPath string
 }
 
 // Lookup returns the value of an environment variable and whether it was set.
@@ -49,7 +60,7 @@ func MapLookup(m map[string]string) Lookup {
 // All problems are reported together so a misconfigured .env is fixed in one pass.
 func Load(lookup Lookup) (Config, error) {
 	var errs []error
-	cfg := Config{Port: DefaultPort, AppEnv: EnvDevelopment}
+	cfg := Config{Port: DefaultPort, AppEnv: EnvDevelopment, Store: StoreMemory, SampleDataPath: DefaultSampleDataPath}
 
 	if raw, ok := nonEmpty(lookup, "PORT"); ok {
 		port, err := strconv.Atoi(raw)
@@ -88,6 +99,19 @@ func Load(lookup Lookup) (Config, error) {
 		}
 	}
 
+	if raw, ok := nonEmpty(lookup, "STORE"); ok {
+		switch raw {
+		case StoreMemory:
+			cfg.Store = raw
+		default:
+			errs = append(errs, fmt.Errorf("STORE must be %q (sqlite arrives in Step 11); got %q", StoreMemory, raw))
+		}
+	}
+
+	if raw, ok := nonEmpty(lookup, "SAMPLE_DATA_PATH"); ok {
+		cfg.SampleDataPath = raw
+	}
+
 	if len(errs) > 0 {
 		return Config{}, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
@@ -99,6 +123,21 @@ func (c Config) IsTest() bool { return c.AppEnv == EnvTest }
 
 // IsProduction reports whether the API runs under APP_ENV=production.
 func (c Config) IsProduction() bool { return c.AppEnv == EnvProduction }
+
+// bcryptCostProduction and bcryptCostTest are D-06's hashing costs: 12 normally, 4 under
+// APP_ENV=test so the sample data loads and auth tests run quickly.
+const (
+	bcryptCostProduction = 12
+	bcryptCostTest       = 4
+)
+
+// BcryptCost returns the bcrypt cost to hash passwords with (D-06).
+func (c Config) BcryptCost() int {
+	if c.IsTest() {
+		return bcryptCostTest
+	}
+	return bcryptCostProduction
+}
 
 // nonEmpty looks a key up and treats a blank value as unset, so `PORT=` in .env means "use the default".
 func nonEmpty(lookup Lookup, key string) (string, bool) {

@@ -2,7 +2,7 @@
 
 A full-stack Twitter/X clone built for The Flock's technical challenge: custom authentication, tweets, a followed-users timeline, likes, follows, search, reply threads, and a mobile-first responsive UI. Go API + SQLite on the back, React + Vite on the front.
 
-> **Project status:** scaffolding stage after a stack pivot (2026-09-16). The backend is being built first against an in-memory store loaded from a sample dataset; SQLite persistence lands as its own step before delivery. This README describes the current setup and is kept accurate as implementation lands (see commit history). Sections not yet implemented are marked **Planned**.
+> **Project status:** Step 2 complete (2026-09-16) — domain model, the hand-authored sample dataset, and the in-memory store are in place and verified (`go build`/`go test` green). No feature endpoints exist yet; auth lands in Step 3. SQLite persistence lands as its own step before delivery. This README describes the current setup and is kept accurate as implementation lands (see commit history). Sections not yet implemented are marked **Planned**.
 
 ---
 
@@ -68,11 +68,11 @@ The stack itself isn't graded — see [my-docs/VALIDATION-OF-REQUIREMENTS.md](my
   /cmd/api              Process bootstrap (env, store, HTTP server, graceful shutdown)
   /internal/config      Typed configuration from env + a small .env loader
   /internal/httpapi     Handlers, middlewares, JSON responses (the HTTP layer)
-  /internal/domain      Entity structs (User, Tweet, Follow, Like)            — Step 2
+  /internal/domain      Entity structs (User, Tweet, Follow, Like)
   /internal/validation  Pure validation rules (username, email, 280 chars…)   — Step 3
   /internal/service     Business rules, no HTTP imports                       — Step 3+
-  /internal/store       Store interface + memory (Step 2) and sqlite (Step 11) implementations
-  /data/sample.json     Hand-authored sample dataset (12 users, tweets, follows, likes, replies) — Step 2
+  /internal/store       Store interface + memory store + sample-data loader + conformance suite; sqlite — Step 11
+  /data/sample.json     Hand-authored sample dataset (12 users, tweets, follows, likes, replies)
 /client                 React + Vite + TypeScript SPA
   /src/pages            Route-level views
   /src/components       Reusable UI
@@ -101,7 +101,7 @@ The same model is served by both store implementations: the in-memory store (map
 
 ## Runbook (Setup & Operations)
 
-> The commands below reflect what exists **today** (Step 1: scaffold + health endpoint). Later steps add to this section in the same commit that adds the feature.
+> The commands below reflect what exists **today** (Step 2: scaffold + health endpoint + domain model + sample data + in-memory store, loaded at boot but not yet exposed by any feature endpoint). Later steps add to this section in the same commit that adds the feature.
 
 ### Prerequisites
 
@@ -125,7 +125,7 @@ npm run dev                   # API on http://localhost:3000, client on http://l
 
 Smoke check: `curl http://localhost:3000/api/health` → `{"status":"ok"}`.
 
-**Planned (Step 2):** on start, the API loads `server/data/sample.json` into memory; while the in-memory store is the default, **restarting the API resets the data to the sample**. **Planned (Step 11):** the default switches to SQLite (`server/data/twitter.db`, created and seeded automatically on first start; `npm run seed` resets it).
+On start, the API loads `server/data/sample.json` into memory and logs the counts (`loaded sample data store=memory users=12 tweets=169 follows=63 likes=499`); while the in-memory store is the default, **restarting the API resets the data to the sample**. No endpoint serves this data yet — that starts in Step 3. **Planned (Step 11):** the default switches to SQLite (`server/data/twitter.db`, created and seeded automatically on first start; `npm run seed` resets it).
 
 ### Running tests
 
@@ -138,7 +138,7 @@ npm run format             # Prettier --write + gofmt -w
 npm run build              # go build → server/bin/, tsc + vite build → client/dist/
 ```
 
-Server-only shortcuts from `server/`: `go test ./...`, `go test ./internal/... -coverprofile=coverage.out && go tool cover -func=coverage.out`.
+Server-only shortcuts from `server/`: `go test ./...`, `go test ./internal/... -coverpkg=./internal/... -coverprofile=coverage.out && go tool cover -func=coverage.out` (the `-coverpkg` flag is needed once cross-package test helpers exist, e.g. `internal/store/storetest` — see DECISIONS.md D-32).
 
 **Planned (Step 12):** `npm run test:e2e` — Playwright auth flow against an already-running `npm run dev`.
 
@@ -146,18 +146,20 @@ Server-only shortcuts from `server/`: `go test ./...`, `go test ./internal/... -
 
 Copy [`.env.example`](.env.example) to `.env` at the repository root. The API looks for `.env` in its working directory and then in the parent, so it is found whether you run from the root or from `server/`. Variables already set in the environment always win over the file.
 
-| Variable        | Default / example                       | Description                                                                                                |
-| --------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `PORT`          | `3000`                                  | API listen port                                                                                            |
-| `APP_ENV`       | `development`                           | `development` / `test` / `production`. `test` lowers bcrypt cost, disables rate limiting and silences logs |
-| `JWT_SECRET`    | `change-me-to-a-random-32+-char-string` | Secret for signing session tokens (≥ 32 chars). The placeholder is refused when `APP_ENV=production`       |
-| `COOKIE_SECURE` | `false`                                 | Set `true` only when serving over HTTPS                                                                    |
+| Variable           | Default / example                       | Description                                                                                                |
+| ------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `PORT`             | `3000`                                  | API listen port                                                                                            |
+| `APP_ENV`          | `development`                           | `development` / `test` / `production`. `test` lowers bcrypt cost, disables rate limiting and silences logs |
+| `JWT_SECRET`       | `change-me-to-a-random-32+-char-string` | Secret for signing session tokens (≥ 32 chars). The placeholder is refused when `APP_ENV=production`       |
+| `COOKIE_SECURE`    | `false`                                 | Set `true` only when serving over HTTPS                                                                    |
+| `STORE`            | `memory`                                | Persistence backend. `memory` loads `SAMPLE_DATA_PATH` at boot; `sqlite` arrives in Step 11                |
+| `SAMPLE_DATA_PATH` | `./data/sample.json`                    | Sample dataset the memory store loads at boot, relative to `server/`                                       |
 
-**Planned:** `STORE` / `SAMPLE_DATA_PATH` (Step 2), `SQLITE_PATH` / `SEED_FORCE` (Step 11) — each is added to `.env.example` in the step that introduces it. The frontend needs no environment variables.
+**Planned:** `SQLITE_PATH` / `SEED_FORCE` (Step 11) — each is added to `.env.example` in the step that introduces it. The frontend needs no environment variables.
 
 ### Sample credentials
 
-**Planned (Step 2).** `server/data/sample.json` contains a fixed sample account — `alice@example.com` / `Password123!` — plus 11 more users sharing the same password. Available as soon as the sample data lands.
+`server/data/sample.json` contains 12 users sharing the password `Password123!`, led by the fixed sample account `alice@example.com` (username `alice`). No login endpoint exists yet (Step 3), but the data is loaded and queryable in-process at boot today.
 
 ---
 
