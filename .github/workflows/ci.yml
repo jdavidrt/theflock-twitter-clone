@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# D-37: the Go job enforces the D-32 coverage threshold on every push; the client job runs
+# lint, format check, build and tests. E2E is not in CI (D-36).
+jobs:
+  server:
+    name: Server (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    env:
+      COVERAGE_MIN: 85
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          # No third-party modules yet, so there is no go.sum for setup-go to key its cache on.
+          # Switch to `cache-dependency-path: server/go.sum` once the first dependency lands (Step 3).
+          cache: false
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race)
+        run: go test -race ./...
+
+      - name: coverage (server/internal, threshold ${{ env.COVERAGE_MIN }}%)
+        run: |
+          go test ./internal/... -coverprofile=coverage.out -covermode=atomic
+          go tool cover -func=coverage.out
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ { sub("%", "", $3); print $3 }')
+          echo "total statement coverage: ${total}%"
+          awk -v total="$total" -v min="$COVERAGE_MIN" 'BEGIN { exit (total + 0 >= min + 0) ? 0 : 1 }' \
+            || { echo "::error::coverage ${total}% is below the ${COVERAGE_MIN}% threshold (D-32)"; exit 1; }
+
+  client:
+    name: Client (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: lint (eslint)
+        run: npx eslint .
+
+      - name: format check
+        run: npm run format:check
+
+      - name: build
+        run: npm run build:client
+
+      - name: test
+        run: npm run test:client

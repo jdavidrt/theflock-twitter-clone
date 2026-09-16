@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+coverage
+.vite
+package-lock.json
+my-docs
+# Go sources are formatted by gofmt; sample data and go.mod/go.sum are left to Go tooling too.
+server
