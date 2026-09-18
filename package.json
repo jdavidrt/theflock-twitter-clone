@@ -20,7 +20,9 @@
     "test": "npm run test:server && npm run test:client",
     "test:server": "cd server && go test ./...",
     "test:client": "npm run test --workspace=client",
+    "test:e2e": "playwright test --config=e2e/playwright.config.ts",
     "test:coverage": "cd server && go test ./internal/... -coverpkg=./internal/... -coverprofile=coverage.out -covermode=atomic && go tool cover -func=coverage.out",
+    "seed": "cd server && go run ./cmd/seed",
     "lint": "eslint . && npm run lint:server",
     "lint:server": "cd server && go vet ./...",
     "format": "prettier --write . && npm run format:server",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
+    "@playwright/test": "^1.63.0",
     "concurrently": "^8.2.2",
     "eslint": "^9.9.0",
     "eslint-config-prettier": "^9.1.0",

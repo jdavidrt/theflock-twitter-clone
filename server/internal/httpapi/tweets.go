@@ -18,6 +18,8 @@ type tweetAuthorResponse struct {
 }
 
 // tweetResponse is the D-23 tweet shape: the row plus its author and counts computed on read.
+// IsDeleted is only ever true for a soft-deleted tweet appearing as a thread ancestor (D-49) —
+// every other list/read method excludes deleted tweets, so it reads false everywhere else.
 type tweetResponse struct {
 	ID            string              `json:"id"`
 	Author        tweetAuthorResponse `json:"author"`
@@ -27,6 +29,7 @@ type tweetResponse struct {
 	LikeCount     int                 `json:"likeCount"`
 	ReplyCount    int                 `json:"replyCount"`
 	LikedByMe     bool                `json:"likedByMe"`
+	IsDeleted     bool                `json:"isDeleted"`
 }
 
 func newTweetResponse(v tweet.View) tweetResponse {
@@ -43,6 +46,7 @@ func newTweetResponse(v tweet.View) tweetResponse {
 		LikeCount:     v.LikeCount,
 		ReplyCount:    v.ReplyCount,
 		LikedByMe:     v.LikedByMe,
+		IsDeleted:     v.Tweet.IsDeleted(),
 	}
 }
 
@@ -86,16 +90,61 @@ func handleCreateTweet(deps Deps, svc *tweet.Service) http.HandlerFunc {
 	}
 }
 
-// handleGetTweet is GET /api/tweets/{id} (404 if missing or deleted, D-16).
-func handleGetTweet(deps Deps, svc *tweet.Service) http.HandlerFunc {
+// handleCreateReply is POST /api/tweets/{id}/replies (D-47): same content rules as a top-level
+// tweet, 404 if the parent is missing or deleted.
+func handleCreateReply(deps Deps, svc *tweet.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		viewerID, _ := userIDFromContext(r.Context())
-		v, err := svc.Get(viewerID, r.PathValue("id"))
+		userID, _ := userIDFromContext(r.Context())
+		var req createTweetRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		v, err := svc.CreateReply(userID, r.PathValue("id"), req.Content)
 		if err != nil {
 			writeTweetError(w, deps.Logger, err, "Tweet not found")
 			return
 		}
-		writeJSON(w, http.StatusOK, newTweetResponse(v))
+		writeJSON(w, http.StatusCreated, newTweetResponse(v))
+	}
+}
+
+// threadResponse is the D-48 thread-page shape: the ancestor chain (root-first), the focused
+// tweet, and its direct replies, cursor-paginated in conversation order.
+type threadResponse struct {
+	Ancestors []tweetResponse   `json:"ancestors"`
+	Tweet     tweetResponse     `json:"tweet"`
+	Replies   tweetListResponse `json:"replies"`
+}
+
+func newThreadResponse(th tweet.Thread) threadResponse {
+	ancestors := make([]tweetResponse, 0, len(th.Ancestors))
+	for _, a := range th.Ancestors {
+		ancestors = append(ancestors, newTweetResponse(a))
+	}
+	return threadResponse{
+		Ancestors: ancestors,
+		Tweet:     newTweetResponse(th.Tweet),
+		Replies:   newTweetListResponse(th.Replies),
+	}
+}
+
+// handleGetThread is GET /api/tweets/{id} (D-48): 404 if the focused tweet is missing or
+// deleted; its direct replies are cursor-paginated via the same `cursor`/`limit` params as
+// every other list endpoint (D-19).
+func handleGetThread(deps Deps, svc *tweet.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		viewerID, _ := userIDFromContext(r.Context())
+		cursor, limit, err := parseCursorAndLimit(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, CodeValidation, err.Error(), nil)
+			return
+		}
+		th, err := svc.GetThread(viewerID, r.PathValue("id"), cursor, limit)
+		if err != nil {
+			writeTweetError(w, deps.Logger, err, "Tweet not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, newThreadResponse(th))
 	}
 }
 

@@ -25,14 +25,19 @@ const MinJWTSecretLen = 32
 // DefaultPort is used when PORT is unset or blank.
 const DefaultPort = 3000
 
-// Store backend names accepted in STORE (D-66). StoreSQLite arrives in Step 11.
+// Store backend names accepted in STORE (D-66).
 const (
 	StoreMemory = "memory"
+	StoreSQLite = "sqlite"
 )
 
 // DefaultSampleDataPath is used when SAMPLE_DATA_PATH is unset or blank (D-43), relative to
 // the server's working directory.
 const DefaultSampleDataPath = "./data/sample.json"
+
+// DefaultSQLitePath is used when SQLITE_PATH is unset or blank (D-43), relative to the
+// server's working directory.
+const DefaultSQLitePath = "./data/twitter.db"
 
 // Config is the fully validated runtime configuration.
 type Config struct {
@@ -42,6 +47,8 @@ type Config struct {
 	CookieSecure   bool
 	Store          string
 	SampleDataPath string
+	SQLitePath     string
+	SeedForce      bool
 }
 
 // Lookup returns the value of an environment variable and whether it was set.
@@ -60,7 +67,13 @@ func MapLookup(m map[string]string) Lookup {
 // All problems are reported together so a misconfigured .env is fixed in one pass.
 func Load(lookup Lookup) (Config, error) {
 	var errs []error
-	cfg := Config{Port: DefaultPort, AppEnv: EnvDevelopment, Store: StoreMemory, SampleDataPath: DefaultSampleDataPath}
+	cfg := Config{
+		Port:           DefaultPort,
+		AppEnv:         EnvDevelopment,
+		Store:          StoreSQLite, // D-66: the default flips from memory to sqlite in Step 11
+		SampleDataPath: DefaultSampleDataPath,
+		SQLitePath:     DefaultSQLitePath,
+	}
 
 	if raw, ok := nonEmpty(lookup, "PORT"); ok {
 		port, err := strconv.Atoi(raw)
@@ -101,15 +114,28 @@ func Load(lookup Lookup) (Config, error) {
 
 	if raw, ok := nonEmpty(lookup, "STORE"); ok {
 		switch raw {
-		case StoreMemory:
+		case StoreMemory, StoreSQLite:
 			cfg.Store = raw
 		default:
-			errs = append(errs, fmt.Errorf("STORE must be %q (sqlite arrives in Step 11); got %q", StoreMemory, raw))
+			errs = append(errs, fmt.Errorf("STORE must be %q or %q; got %q", StoreMemory, StoreSQLite, raw))
 		}
 	}
 
 	if raw, ok := nonEmpty(lookup, "SAMPLE_DATA_PATH"); ok {
 		cfg.SampleDataPath = raw
+	}
+
+	if raw, ok := nonEmpty(lookup, "SQLITE_PATH"); ok {
+		cfg.SQLitePath = raw
+	}
+
+	if raw, ok := nonEmpty(lookup, "SEED_FORCE"); ok {
+		force, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("SEED_FORCE must be true or false, got %q", raw))
+		} else {
+			cfg.SeedForce = force
+		}
 	}
 
 	if len(errs) > 0 {

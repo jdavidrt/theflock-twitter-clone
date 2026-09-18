@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
 )
 
 func TestRequireAuthRejectsGarbageCookie(t *testing.T) {
@@ -23,7 +21,7 @@ func TestRequireAuthRejectsGarbageCookie(t *testing.T) {
 
 func TestRequireAuthRejectsTokenSignedWithAnotherSecret(t *testing.T) {
 	t.Parallel()
-	st := memory.New()
+	st := newStore(t)
 	cfgA := testConfig()
 	cfgA.JWTSecret = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	cfgB := testConfig()

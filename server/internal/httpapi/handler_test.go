@@ -4,10 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/config"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/sqlite"
 )
 
 func testConfig() config.Config {
@@ -16,6 +21,27 @@ func testConfig() config.Config {
 		AppEnv:    config.EnvTest,
 		JWTSecret: strings.Repeat("t", config.MinJWTSecretLen),
 	}
+}
+
+// newStore returns a fresh store.Store for one test. It defaults to an in-memory store; set
+// HTTPAPI_TEST_STORE=sqlite to run this package's integration tests against a real SQLite file
+// in t.TempDir() instead, satisfying D-66's "the HTTP integration tests run against both [store]
+// from Step 11 on" without duplicating every test function.
+func newStore(t *testing.T) store.Store {
+	t.Helper()
+	if os.Getenv("HTTPAPI_TEST_STORE") != "sqlite" {
+		return memory.New()
+	}
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("opening sqlite store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Errorf("closing sqlite store: %v", err)
+		}
+	})
+	return st
 }
 
 func newTestHandler(t *testing.T) http.Handler {

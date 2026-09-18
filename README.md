@@ -2,7 +2,7 @@
 
 A full-stack Twitter/X clone built for The Flock's technical challenge: custom authentication, tweets, a followed-users timeline, likes, follows, search, reply threads, and a mobile-first responsive UI. Go API + SQLite on the back, React + Vite on the front.
 
-> **Project status:** Step 9 complete (2026-09-18) — profile pages (`/:username`), follow/unfollow with optimistic updates, an inline bio editor, paginated followers/following lists (`/:username/followers`, `/:username/following`), and debounced user search (`/search`) are all live and wired into the nav. Every required frontend flow in the brief now has a passing integration test (login, create tweet, follow). Verified in the browser against the real Go API and alice's real sample follow graph, plus a passing client integration test suite (Vitest + React Testing Library + MSW, 6/6). Step 8's home timeline and Step 7's app shell/auth loop remain in place. Steps 2–6's domain model, sample dataset, in-memory store, custom authentication, profile/follow graph, tweets/timeline/likes, and user search remain in place on the backend (backend coverage **93.4 % total statements**, D-32 floor is 85 %). SQLite persistence lands as its own step before delivery. This README describes the current setup and is kept accurate as implementation lands (see commit history). Sections not yet implemented are marked **Planned**.
+> **Project status:** Step 12 complete (2026-09-18) — the last step before delivery. All 12 implementation steps are done: custom auth, profiles/follows, tweets/timeline/likes/search, reply threads (bonus), the mobile-first responsive UI, and the **SQLite-by-default** persistence layer (`internal/store/sqlite`, seeded from `server/data/sample.json` via `npm run seed` or automatically on a fresh clone's first boot). The full `internal/store/storetest` conformance suite and the entire `internal/httpapi` integration suite pass against both stores. This step added the required Playwright E2E auth-flow spec (`npm run test:e2e`, `/e2e/auth.spec.ts`), a responsive QA pass at 375/768/1280px that found and fixed two real bugs (a nav item losing its accessible name once its label is visually hidden at the tablet breakpoint, and an undersized 36px follow-button touch target), and this documentation pass. Backend coverage **91.5 % total statements** (D-32 floor is 85 %); client suite **8/8** passing; E2E spec passing against the real stack. This README describes the current, final setup — see commit history for how it got here.
 
 ---
 
@@ -66,21 +66,23 @@ The stack itself isn't graded — see [my-docs/VALIDATION-OF-REQUIREMENTS.md](my
 ```
 /server                 Go module — the API
   /cmd/api              Process bootstrap (env, store, HTTP server, graceful shutdown)
+  /cmd/seed             Truncate-then-insert `server/data/sample.json` into the SQLite store (`npm run seed`)
   /internal/config      Typed configuration from env + a small .env loader
   /internal/httpapi     Handlers, middlewares, JSON responses (the HTTP layer)
   /internal/domain      Entity structs (User, Tweet, Follow, Like)
   /internal/validation  Pure validation rules (username, email, password, display name)
   /internal/service     Business rules, no HTTP imports — auth (Step 3), social/follows (Step 4), tweets/timeline/likes/search (Steps 5-6)
-  /internal/store       Store interface + memory store + sample-data loader + conformance suite; sqlite — Step 11
+  /internal/store       Store interface + sample-data loader + conformance suite; store/memory (dev-only) and store/sqlite (default, D-66) both pass it
   /data/sample.json     Hand-authored sample dataset (12 users, tweets, follows, likes, replies)
+  /data/twitter.db      SQLite database file — gitignored, created and seeded on first boot
 /client                 React + Vite + TypeScript SPA
   /src/pages            Route-level views (Home, Login, Register, Profile, FollowList, Search, NotFound)
   /src/components       Reusable UI (AppShell, AuthLayout, Avatar, ComposeBox, TweetCard, TweetList, Protected/PublicOnlyRoute, icons)
   /src/context          AuthContext — resolves the session once from GET /api/auth/me
   /src/lib              Typed API client (api.ts), validation mirror (validation.ts, D-54), relative-time formatting (time.ts, D-30), infinite-scroll/tweet-feed hooks (useInfiniteScrollSentinel.ts, useTweetFeed.ts)
   /tests                Vitest + React Testing Library + MSW integration tests
-/e2e                    Playwright E2E specs                                    — Step 12
-/.github/workflows      CI: Go (gofmt, vet, race tests, coverage ≥ 85 %) + client (lint, build, tests)
+/e2e                    Playwright E2E specs (auth.spec.ts, D-36) + playwright.config.ts
+/.github/workflows      CI: Go (gofmt, vet, race tests, httpapi suite against sqlite too, coverage ≥ 85 %) + client (lint, build, tests)
 .env.example            Every environment variable the app reads
 my-docs/                Internal planning docs (requirements validation, decisions, plan, AI collaboration log)
 ```
@@ -102,7 +104,7 @@ The same model is served by both store implementations: the in-memory store (map
 
 ## Runbook (Setup & Operations)
 
-> The commands below reflect what exists **today** (Steps 1–7: scaffold, health endpoint, domain model + sample data + in-memory store, custom authentication, user profiles + the follow graph, tweets/timeline/likes, user search, and the frontend app shell + auth UI). Later steps add to this section in the same commit that adds the feature.
+> The commands below reflect what exists **today** (Steps 1–11: scaffold, health endpoint, domain model + sample data, custom authentication, user profiles + the follow graph, tweets/timeline/likes, user search, the frontend app shell + auth UI, timeline/compose/like/delete, profile/follow/search pages, the bonus reply-threads feature, and the SQLite store that's now the default persistence backend). Later steps add to this section in the same commit that adds the feature.
 
 ### Prerequisites
 
@@ -126,43 +128,45 @@ npm run dev                   # API on http://localhost:3000, client on http://l
 
 Smoke check: `curl http://localhost:3000/api/health` → `{"status":"ok"}`. Open `http://localhost:5173` in a browser: an unauthenticated visit redirects to `/login`; register or log in (try the [sample credentials](#sample-credentials) below) and you land on `/` inside the app shell (bottom tab bar under 640px, an icon rail from 640px, a labeled sidebar with a centered content column from 1024px — D-28), with a logout action always reachable. `/login` and `/register` redirect an already-authenticated visitor back to `/`.
 
-On start, the API loads `server/data/sample.json` into memory and logs the counts (`loaded sample data store=memory users=12 tweets=169 follows=63 likes=499`); while the in-memory store is the default (Phase 1, D-66), **restarting the API resets all data — including anything created through the API — back to the sample dataset.** This is a development convenience, not the delivered behavior: Step 11 switches the default to SQLite, which persists across restarts. Auth endpoints are live: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`. Profile and follow endpoints: `GET /api/users/{username}` (profile with counts + `isFollowedByMe`), `PATCH /api/users/me` (edit display name/bio), `POST`/`DELETE /api/users/{username}/follow` (idempotent follow/unfollow), `GET /api/users/{username}/followers` and `/following` (cursor-paginated). Tweet, timeline and like endpoints: `POST /api/tweets` (create), `GET`/`DELETE /api/tweets/{id}` (read / author-only soft delete), `GET /api/users/{username}/tweets` (a user's tweets), `GET /api/timeline` (followed-users + own tweets, cursor-paginated), `POST`/`DELETE /api/tweets/{id}/like` (idempotent like/unlike). Search: `GET /api/search/users?q=` (case-insensitive substring on username or display name, capped at 20 results) — see [Sample credentials](#sample-credentials) to try all of the above against the seeded data. **Planned (Step 11):** the default switches to SQLite (`server/data/twitter.db`, created and seeded automatically on first start; `npm run seed` resets it).
+On a fresh clone, the API opens (creating if needed) `server/data/twitter.db` and, finding it empty, seeds it from `server/data/sample.json`, logging the counts (`seeded empty sqlite store store=sqlite path=./data/twitter.db users=12 tweets=169 follows=63 likes=499`). **This is the default, delivered persistence (`STORE=sqlite`, D-66): data created through the API — new tweets, follows, likes, profile edits — survives a restart.** A later boot against the same file logs `opened sqlite store` instead and does not re-seed. To reset to the sample dataset, run `npm run seed` (truncates then reinserts; refuses under `APP_ENV=production` unless `SEED_FORCE=true`), or delete `server/data/twitter.db*` and restart. Setting `STORE=memory` in `.env` switches to the earlier in-memory store instead (loads `SAMPLE_DATA_PATH` fresh at every boot; **restarting then resets all data back to the sample dataset**) — useful for quick local experimentation, not what ships. Auth endpoints are live: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`. Profile and follow endpoints: `GET /api/users/{username}` (profile with counts + `isFollowedByMe`), `PATCH /api/users/me` (edit display name/bio), `POST`/`DELETE /api/users/{username}/follow` (idempotent follow/unfollow), `GET /api/users/{username}/followers` and `/following` (cursor-paginated). Tweet, timeline and like endpoints: `POST /api/tweets` (create), `GET`/`DELETE /api/tweets/{id}` (read as a D-48 thread page — `{ ancestors, tweet, replies }` — / author-only soft delete), `GET /api/users/{username}/tweets` (a user's tweets), `GET /api/timeline` (followed-users + own tweets, cursor-paginated), `POST`/`DELETE /api/tweets/{id}/like` (idempotent like/unlike). Reply threads (bonus, D-47…D-50): `POST /api/tweets/{id}/replies` (create a reply, 404 if the parent is missing or deleted); a deleted tweet inside a thread's ancestor chain still returns its data with `isDeleted: true` so the client can render the "this tweet was deleted" placeholder rather than breaking the chain. Search: `GET /api/search/users?q=` (case-insensitive substring on username or display name, capped at 20 results) — see [Sample credentials](#sample-credentials) to try all of the above against the seeded data.
 
 ### Running tests
 
 ```bash
 npm test                   # Go suite (server) + client suite
-npm run test:coverage      # Go coverage over server/internal — 93.4 % total statements as of Step 6 (floor: 85 %, D-32)
+npm run test:coverage      # Go coverage over server/internal — 91.5 % total statements as of Step 11 (floor: 85 %, D-32)
 npm run lint               # ESLint (client) + go vet (server)
 npm run format:check       # Prettier check (client + config files); CI also checks gofmt
 npm run format             # Prettier --write + gofmt -w
 npm run build              # go build → server/bin/, tsc + vite build → client/dist/
 ```
 
-Server-only shortcuts from `server/`: `go test ./...`, `go test ./internal/... -coverpkg=./internal/... -coverprofile=coverage.out && go tool cover -func=coverage.out` (the `-coverpkg` flag is needed once cross-package test helpers exist, e.g. `internal/store/storetest` — see DECISIONS.md D-32).
+Server-only shortcuts from `server/`: `go test ./...`, `go test ./internal/... -coverpkg=./internal/... -coverprofile=coverage.out && go tool cover -func=coverage.out` (the `-coverpkg` flag is needed once cross-package test helpers exist, e.g. `internal/store/storetest` — see DECISIONS.md D-32). `go test ./...` alone only exercises `internal/httpapi` against the default in-memory store; run `HTTPAPI_TEST_STORE=sqlite go test ./internal/httpapi/...` to run the same integration suite against a real SQLite file instead (CI runs both — D-66).
 
-Client-only shortcut from `client/`: `npx vitest` (watch mode). The suite renders the real `App` against a mocked API (MSW) and now covers all three required frontend flows: `client/tests/integration/login.test.tsx` (login end to end — valid credentials land on `/` with the username visible in the nav, invalid credentials show the server's error message inline), `client/tests/integration/compose-tweet.test.tsx` (the live counter updates while typing, submitting posts a tweet and it appears at the top of the timeline, plus the 280-code-point submit-disable boundary), and `client/tests/integration/follow-flow.test.tsx` (clicking Follow on another user's profile flips the button to "Following" and increments the follower count; the reverse for Unfollow).
+Client-only shortcut from `client/`: `npx vitest` (watch mode). The suite renders the real `App` against a mocked API (MSW) and covers all three required frontend flows — `client/tests/integration/login.test.tsx` (login end to end — valid credentials land on `/` with the username visible in the nav, invalid credentials show the server's error message inline), `client/tests/integration/compose-tweet.test.tsx` (the live counter updates while typing, submitting posts a tweet and it appears at the top of the timeline, plus the 280-code-point submit-disable boundary), and `client/tests/integration/follow-flow.test.tsx` (clicking Follow on another user's profile flips the button to "Following" and increments the follower count; the reverse for Unfollow) — plus the bonus reply-threads flow in `client/tests/integration/thread.test.tsx` (the thread page renders the ancestor chain, focused tweet and replies, posting a reply appends it, and a deleted ancestor renders the D-49 placeholder).
 
-**Planned (Step 12):** `npm run test:e2e` — Playwright auth flow against an already-running `npm run dev`.
+**End-to-end (Playwright, D-36):** `npm run test:e2e` runs `/e2e/auth.spec.ts` against an **already-running** `npm run dev` at `http://localhost:5173` — it does not start the app itself, so start the dev server first. The spec registers a unique `e2e_<timestamp>` user (rerunnable without resetting the database) and drives register → land on the timeline with the username visible in the nav → log out → redirected back to `/login` → log back in with the same credentials. Not run in CI (D-37) since it needs the full stack up.
 
 ### Environment variables
 
 Copy [`.env.example`](.env.example) to `.env` at the repository root. The API looks for `.env` in its working directory and then in the parent, so it is found whether you run from the root or from `server/`. Variables already set in the environment always win over the file.
 
-| Variable           | Default / example                       | Description                                                                                                |
-| ------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `PORT`             | `3000`                                  | API listen port                                                                                            |
-| `APP_ENV`          | `development`                           | `development` / `test` / `production`. `test` lowers bcrypt cost, disables rate limiting and silences logs |
-| `JWT_SECRET`       | `change-me-to-a-random-32+-char-string` | Secret for signing session tokens (≥ 32 chars). The placeholder is refused when `APP_ENV=production`       |
-| `COOKIE_SECURE`    | `false`                                 | Set `true` only when serving over HTTPS                                                                    |
-| `STORE`            | `memory`                                | Persistence backend. `memory` loads `SAMPLE_DATA_PATH` at boot; `sqlite` arrives in Step 11                |
-| `SAMPLE_DATA_PATH` | `./data/sample.json`                    | Sample dataset the memory store loads at boot, relative to `server/`                                       |
+| Variable           | Default / example                       | Description                                                                                                                                                                          |
+| ------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`             | `3000`                                  | API listen port                                                                                                                                                                      |
+| `APP_ENV`          | `development`                           | `development` / `test` / `production`. `test` lowers bcrypt cost, disables rate limiting and silences logs                                                                           |
+| `JWT_SECRET`       | `change-me-to-a-random-32+-char-string` | Secret for signing session tokens (≥ 32 chars). The placeholder is refused when `APP_ENV=production`                                                                                 |
+| `COOKIE_SECURE`    | `false`                                 | Set `true` only when serving over HTTPS                                                                                                                                              |
+| `STORE`            | `sqlite`                                | Persistence backend. `sqlite` (default) persists to `SQLITE_PATH`, seeding from `SAMPLE_DATA_PATH` only on first boot; `memory` loads `SAMPLE_DATA_PATH` fresh at every boot instead |
+| `SAMPLE_DATA_PATH` | `./data/sample.json`                    | Sample dataset the memory store (always) and the sqlite store (first boot only) load, relative to `server/`                                                                          |
+| `SQLITE_PATH`      | `./data/twitter.db`                     | SQLite database file, relative to `server/`; gitignored; created on first boot                                                                                                       |
+| `SEED_FORCE`       | `false`                                 | Lets `npm run seed` (`cmd/seed`) run under `APP_ENV=production`                                                                                                                      |
 
-**Planned:** `SQLITE_PATH` / `SEED_FORCE` (Step 11) — each is added to `.env.example` in the step that introduces it. The frontend needs no environment variables.
+The frontend needs no environment variables.
 
 ### Sample credentials
 
-`server/data/sample.json` contains 12 users sharing the password `Password123!`, led by the fixed sample account `alice@example.com` (username `alice`). Confirmed against a **freshly started** API (Phase 1 loads the sample dataset fresh on every boot — see the restart note above):
+`server/data/sample.json` contains 12 users sharing the password `Password123!`, led by the fixed sample account `alice@example.com` (username `alice`). Confirmed against a **freshly seeded** API — a fresh clone's first `npm run dev`, or after `npm run seed` (see the restart note above; on a database that already has data, restarting no longer resets it):
 
 ```bash
 curl -i -c cookies.txt -X POST http://localhost:3000/api/auth/login \
@@ -197,11 +201,13 @@ curl -i -b cookies.txt "http://localhost:3000/api/search/users?q=aR"   # case-in
 - **Counts on read:** like/reply/follower counts are counted per request instead of stored — correct by construction at this scale, would need denormalizing for a large dataset.
 - **Private by default:** every page and endpoint except register/login requires a session; there is no logged-out public browsing of profiles or tweets.
 - **Soft deletes:** deleted tweets keep their row (`deleted_at`) so reply threads don't lose their parent; they never appear in feeds or counts.
-- **In-memory phase:** until the SQLite store lands (Step 11), data written through the API lives in process memory and a restart resets it to the sample dataset. This is a development convenience, not the delivered behavior.
-- **Single-writer SQLite:** fine for this scale; a multi-instance deployment would need a server database.
+- **In-memory store kept as a dev-only option:** `STORE=memory` still works (loads `server/data/sample.json` fresh at every boot, writes live only in process memory, a restart resets to the sample) — useful for quick local experimentation without touching the SQLite file, but `STORE=sqlite` is the default and the delivered behavior (D-66).
+- **Single-writer SQLite:** the store caps its connection pool at one (`SetMaxOpenConns(1)`), matching D-64's "one writer at a time is fine at this scale" — avoids `SQLITE_BUSY` without a retry loop; a multi-instance deployment would need a server database.
 - **Client-side validation is a UX mirror, not the source of truth (D-54):** `client/src/lib/validation.ts` pins the same length bounds, username regex and code-point counting as the server so bad input is caught before a round trip, but business rules like the reserved-username list are checked server-side only — the client just displays whatever `details` the server returns.
 - **No Docker Compose yet:** deferred to the post-MVP backlog so the core work never depends on it; the local Runbook needs only Go and Node.
 - **No image uploads, real-time updates, or notifications** in this delivery — deferred deliberately to keep the required features solid within 72 hours. See [my-docs/VALIDATION-OF-REQUIREMENTS.md](my-docs/VALIDATION-OF-REQUIREMENTS.md) §8 for the full out-of-scope list and rationale.
+- **E2E scope is one spec, by design (D-36):** `e2e/auth.spec.ts` covers the required real-browser auth flow only; compose/like/delete/follow/search/threads are exercised by the Vitest+MSW integration suite instead (faster, no flakiness from a real backend), not duplicated as browser E2E.
+- **React Query default retry policy:** the client only retries a failed request when the error isn't a 4xx (client errors — not-found, validation, forbidden — are never transient). Found during Step 12's responsive QA: visiting an unknown username left the profile page on "Loading profile…" for ~7 seconds (three retries with backoff) before showing "User not found" under the library's out-of-the-box default of retrying every error including 404s.
 - This section will grow as real implementation trade-offs are made.
 
 ---

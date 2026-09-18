@@ -49,6 +49,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             key={to}
             to={to}
             end={end}
+            aria-label={label}
             className={({ isActive }) =>
               'app-shell__nav-item' + (isActive ? ' app-shell__nav-item--active' : '')
             }
@@ -61,6 +62,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           type="button"
           className="app-shell__nav-item app-shell__rail-logout"
           onClick={handleLogout}
+          aria-label="Log out"
         >
           <LogoutIcon />
           <span className="app-shell__nav-label">Log out</span>
@@ -77,6 +79,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             key={to}
             to={to}
             end={end}
+            aria-label={label}
             className={({ isActive }) =>
               'app-shell__nav-item' + (isActive ? ' app-shell__nav-item--active' : '')
             }

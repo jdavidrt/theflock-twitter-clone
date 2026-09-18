@@ -28,11 +28,17 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.IsTest() || cfg.IsProduction() {
 		t.Error("development config must report neither IsTest nor IsProduction")
 	}
-	if cfg.Store != StoreMemory {
-		t.Errorf("Store = %q, want %q", cfg.Store, StoreMemory)
+	if cfg.Store != StoreSQLite {
+		t.Errorf("Store = %q, want %q (D-66: sqlite is the default from Step 11)", cfg.Store, StoreSQLite)
 	}
 	if cfg.SampleDataPath != DefaultSampleDataPath {
 		t.Errorf("SampleDataPath = %q, want %q", cfg.SampleDataPath, DefaultSampleDataPath)
+	}
+	if cfg.SQLitePath != DefaultSQLitePath {
+		t.Errorf("SQLitePath = %q, want %q", cfg.SQLitePath, DefaultSQLitePath)
+	}
+	if cfg.SeedForce {
+		t.Error("SeedForce = true, want false")
 	}
 }
 
@@ -45,6 +51,8 @@ func TestLoadExplicitValues(t *testing.T) {
 		"COOKIE_SECURE":    "true",
 		"STORE":            "memory",
 		"SAMPLE_DATA_PATH": "./testdata/sample.json",
+		"SQLITE_PATH":      "./testdata/twitter.db",
+		"SEED_FORCE":       "true",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -58,8 +66,28 @@ func TestLoadExplicitValues(t *testing.T) {
 	if !cfg.CookieSecure {
 		t.Error("CookieSecure = false, want true")
 	}
+	if cfg.Store != StoreMemory {
+		t.Errorf("Store = %q, want memory", cfg.Store)
+	}
 	if cfg.SampleDataPath != "./testdata/sample.json" {
 		t.Errorf("SampleDataPath = %q, want ./testdata/sample.json", cfg.SampleDataPath)
+	}
+	if cfg.SQLitePath != "./testdata/twitter.db" {
+		t.Errorf("SQLitePath = %q, want ./testdata/twitter.db", cfg.SQLitePath)
+	}
+	if !cfg.SeedForce {
+		t.Error("SeedForce = false, want true")
+	}
+}
+
+func TestLoadExplicitSQLiteStore(t *testing.T) {
+	t.Parallel()
+	cfg, err := Load(MapLookup(map[string]string{"JWT_SECRET": validSecret, "STORE": "sqlite"}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Store != StoreSQLite {
+		t.Errorf("Store = %q, want sqlite", cfg.Store)
 	}
 }
 
@@ -72,6 +100,8 @@ func TestLoadBlankValuesMeanDefault(t *testing.T) {
 		"JWT_SECRET":       validSecret,
 		"STORE":            "",
 		"SAMPLE_DATA_PATH": "  ",
+		"SQLITE_PATH":      "  ",
+		"SEED_FORCE":       "",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -79,8 +109,8 @@ func TestLoadBlankValuesMeanDefault(t *testing.T) {
 	if cfg.Port != DefaultPort || cfg.AppEnv != EnvDevelopment || cfg.CookieSecure {
 		t.Errorf("blank values should fall back to defaults, got %+v", cfg)
 	}
-	if cfg.Store != StoreMemory || cfg.SampleDataPath != DefaultSampleDataPath {
-		t.Errorf("blank STORE/SAMPLE_DATA_PATH should fall back to defaults, got %+v", cfg)
+	if cfg.Store != StoreSQLite || cfg.SampleDataPath != DefaultSampleDataPath || cfg.SQLitePath != DefaultSQLitePath {
+		t.Errorf("blank STORE/SAMPLE_DATA_PATH/SQLITE_PATH should fall back to defaults, got %+v", cfg)
 	}
 }
 
@@ -132,6 +162,7 @@ func TestLoadErrors(t *testing.T) {
 		{"unknown env", map[string]string{"JWT_SECRET": validSecret, "APP_ENV": "staging"}, []string{"APP_ENV", `"staging"`}},
 		{"bad cookie flag", map[string]string{"JWT_SECRET": validSecret, "COOKIE_SECURE": "yes please"}, []string{"COOKIE_SECURE"}},
 		{"unknown store", map[string]string{"JWT_SECRET": validSecret, "STORE": "postgres"}, []string{"STORE", `"postgres"`}},
+		{"bad seed force flag", map[string]string{"JWT_SECRET": validSecret, "SEED_FORCE": "yes please"}, []string{"SEED_FORCE"}},
 		{"all problems reported together", map[string]string{"PORT": "x", "APP_ENV": "y", "COOKIE_SECURE": "z"}, []string{"PORT", "APP_ENV", "COOKIE_SECURE", "JWT_SECRET"}},
 	}
 	for _, tc := range tests {

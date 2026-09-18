@@ -18,6 +18,9 @@ import (
 // ErrForbidden is returned by Delete when the caller is not the tweet's author (D-16).
 var ErrForbidden = errors.New("only the author can delete this tweet")
 
+// MaxAncestorHops caps how far GetThread walks up a reply chain (D-48 safety valve).
+const MaxAncestorHops = 50
+
 // FieldErrors maps a request field name to the problems found with it (D-52 `details`).
 type FieldErrors map[string][]string
 
@@ -75,6 +78,76 @@ func (s *Service) Get(viewerID, tweetID string) (View, error) {
 		return View{}, err
 	}
 	return s.viewOf(viewerID, t)
+}
+
+// CreateReply validates content (D-13/D-14) and creates a reply to parentTweetID authored by
+// authorID (D-47). It returns store.ErrNotFound if the parent tweet is missing or deleted.
+func (s *Service) CreateReply(authorID, parentTweetID, content string) (View, error) {
+	normalized, errs := validation.TweetContent(content)
+	if len(errs) > 0 {
+		return View{}, &ValidationError{Fields: FieldErrors{"content": errs}}
+	}
+	if _, err := s.store.GetTweet(parentTweetID); err != nil {
+		return View{}, err
+	}
+
+	created, err := s.store.CreateTweet(domain.Tweet{
+		ID:            uuid.NewString(),
+		AuthorID:      authorID,
+		Content:       normalized,
+		ParentTweetID: &parentTweetID,
+		CreatedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		return View{}, err
+	}
+	return s.viewOf(authorID, created)
+}
+
+// Thread is the D-48 thread-page composition: the ancestor chain (root-first; an ancestor may
+// be a soft-deleted placeholder per D-49), the focused tweet, and its direct replies.
+type Thread struct {
+	Ancestors []View
+	Tweet     View
+	Replies   store.Page[View]
+}
+
+// GetThread returns tweetID's thread page from viewerID's perspective (D-48). It returns
+// store.ErrNotFound if tweetID is missing or deleted — a deleted tweet cannot be the focus of
+// a thread page (D-49).
+func (s *Service) GetThread(viewerID, tweetID string, cursor *store.Cursor, limit int) (Thread, error) {
+	t, err := s.store.GetTweet(tweetID)
+	if err != nil {
+		return Thread{}, err
+	}
+	focused, err := s.viewOf(viewerID, t)
+	if err != nil {
+		return Thread{}, err
+	}
+
+	ancestorTweets, err := s.store.Ancestors(tweetID, MaxAncestorHops)
+	if err != nil {
+		return Thread{}, err
+	}
+	ancestors := make([]View, 0, len(ancestorTweets))
+	for _, at := range ancestorTweets {
+		v, err := s.viewOf(viewerID, at)
+		if err != nil {
+			return Thread{}, err
+		}
+		ancestors = append(ancestors, v)
+	}
+
+	repliesPage, err := s.store.ListReplies(tweetID, cursor, limit)
+	if err != nil {
+		return Thread{}, err
+	}
+	replies, err := s.viewPage(viewerID, repliesPage)
+	if err != nil {
+		return Thread{}, err
+	}
+
+	return Thread{Ancestors: ancestors, Tweet: focused, Replies: replies}, nil
 }
 
 // Delete soft-deletes tweetID on behalf of viewerID (D-16). It returns store.ErrNotFound for a

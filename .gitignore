@@ -85,6 +85,8 @@ vendor/
 *.sqlite
 *.sqlite3
 *.db
+*.db-wal
+*.db-shm
 mysql-data/
 db-data/
 data/mysql/

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/sample"
 )
 
@@ -16,12 +16,12 @@ import (
 // uses (it runs from this package's own directory, internal/httpapi).
 const realSampleDataPath = "../../data/sample.json"
 
-// newSampleDataTestHandler builds a handler backed by a memory store loaded from the real
-// sample.json, for tests that need more than a couple of hand-registered users (D-67).
+// newSampleDataTestHandler builds a handler backed by a store loaded from the real sample.json,
+// for tests that need more than a couple of hand-registered users (D-67).
 func newSampleDataTestHandler(t *testing.T) http.Handler {
 	t.Helper()
 	cfg := testConfig()
-	st := memory.New()
+	st := newStore(t)
 	if _, err := sample.Load(realSampleDataPath, cfg.BcryptCost(), st); err != nil {
 		t.Fatalf("loading sample data: %v", err)
 	}
@@ -266,11 +266,11 @@ func TestUnfollowUnknownUsernameReturns404(t *testing.T) {
 	}
 }
 
-// explodingTweetCountStore wraps a real memory store but fails TweetCount with an error that is
+// explodingTweetCountStore wraps a real store but fails TweetCount with an error that is
 // neither ErrNotFound nor a sentinel the social service knows about, so callers can exercise the
 // "unexpected store error" branch (a 500, not a leaked 500 body) without a second store backend.
 type explodingTweetCountStore struct {
-	*memory.Store
+	store.Store
 }
 
 func (s *explodingTweetCountStore) TweetCount(string) (int, error) {
@@ -279,7 +279,7 @@ func (s *explodingTweetCountStore) TweetCount(string) (int, error) {
 
 func TestGetProfileUnexpectedStoreErrorReturns500(t *testing.T) {
 	t.Parallel()
-	st := &explodingTweetCountStore{Store: memory.New()}
+	st := &explodingTweetCountStore{Store: newStore(t)}
 	h := NewHandler(Deps{Config: testConfig(), Store: st})
 	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
 

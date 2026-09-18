@@ -22,9 +22,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
-          # No third-party modules yet, so there is no go.sum for setup-go to key its cache on.
-          # Switch to `cache-dependency-path: server/go.sum` once the first dependency lands (Step 3).
-          cache: false
+          cache-dependency-path: server/go.sum
 
       - name: gofmt
         run: |
@@ -38,6 +36,12 @@ jobs:
 
       - name: go test (race)
         run: go test -race ./...
+
+      # D-66: store/sqlite runs the same conformance suite as store/memory (covered by the
+      # "go test (race)" step above via internal/store/sqlite's own _test.go), and from Step 11
+      # on the httpapi integration tests also run against both stores.
+      - name: go test (httpapi against sqlite)
+        run: HTTPAPI_TEST_STORE=sqlite go test ./internal/httpapi/...
 
       - name: coverage (server/internal, threshold ${{ env.COVERAGE_MIN }}%)
         run: |

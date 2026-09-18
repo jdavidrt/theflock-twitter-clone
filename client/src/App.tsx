@@ -9,6 +9,7 @@ import NotFound from './pages/NotFound.js';
 import Profile from './pages/Profile.js';
 import Register from './pages/Register.js';
 import Search from './pages/Search.js';
+import TweetDetail from './pages/TweetDetail.js';
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/search" element={<Search />} />
+                <Route path="/tweet/:id" element={<TweetDetail />} />
                 <Route path="/:username" element={<Profile />} />
                 <Route path="/:username/followers" element={<FollowList mode="followers" />} />
                 <Route path="/:username/following" element={<FollowList mode="following" />} />

@@ -93,6 +93,7 @@ export interface TweetAuthor {
 }
 
 // Mirrors server/internal/httpapi/tweets.go's tweetResponse: counts computed on read (D-23).
+// isDeleted is only ever true for a soft-deleted tweet appearing as a thread ancestor (D-49).
 export interface Tweet {
   id: string;
   author: TweetAuthor;
@@ -102,6 +103,7 @@ export interface Tweet {
   likeCount: number;
   replyCount: number;
   likedByMe: boolean;
+  isDeleted: boolean;
 }
 
 export interface TweetPage {
@@ -133,6 +135,26 @@ export function unlikeTweet(id: string): Promise<Tweet> {
 export function getUserTweets(username: string, cursor: string | null): Promise<TweetPage> {
   const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
   return request<TweetPage>(`/users/${username}/tweets${params}`);
+}
+
+// Mirrors server/internal/httpapi/tweets.go's threadResponse (D-48): the ancestor chain
+// (root-first), the focused tweet, and its direct replies, cursor-paginated.
+export interface Thread {
+  ancestors: Tweet[];
+  tweet: Tweet;
+  replies: TweetPage;
+}
+
+export function getThread(id: string, cursor: string | null): Promise<Thread> {
+  const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  return request<Thread>(`/tweets/${id}${params}`);
+}
+
+export function createReply(parentTweetId: string, content: string): Promise<Tweet> {
+  return request<Tweet>(`/tweets/${parentTweetId}/replies`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
 }
 
 // Mirrors server/internal/httpapi/users.go's profileResponse: counts computed on read (D-23),

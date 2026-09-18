@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store"
 )
 
-// explodingLikeCountStore wraps a real memory store but fails LikeCount with an error that is
+// explodingLikeCountStore wraps a real store but fails LikeCount with an error that is
 // neither ErrNotFound nor a sentinel tweet.Service knows about, so tests can exercise the
 // "unexpected store error" branch (a 500, not a 404) in tweet.Service.viewOf and
 // writeTweetError, mirroring auth_test.go's explodingEmailStore.
 type explodingLikeCountStore struct {
-	*memory.Store
+	store.Store
 }
 
 func (s *explodingLikeCountStore) LikeCount(string) (int, error) {
@@ -46,6 +46,28 @@ func createTweet(t *testing.T, h http.Handler, content string, cookie *http.Cook
 	var tw tweetResponse
 	decodeBody(t, res, &tw)
 	return tw
+}
+
+func createReply(t *testing.T, h http.Handler, parentID, content string, cookie *http.Cookie) tweetResponse {
+	t.Helper()
+	res := doAction(t, h, http.MethodPost, "/api/tweets/"+parentID+"/replies", map[string]string{"content": content}, cookie)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("create reply status = %d, want 201, body=%s", res.Code, res.Body.String())
+	}
+	var tw tweetResponse
+	decodeBody(t, res, &tw)
+	return tw
+}
+
+func getThread(t *testing.T, h http.Handler, id string, cookie *http.Cookie) threadResponse {
+	t.Helper()
+	res := doGet(t, h, "/api/tweets/"+id, cookie)
+	if res.Code != http.StatusOK {
+		t.Fatalf("get thread status = %d, want 200, body=%s", res.Code, res.Body.String())
+	}
+	var th threadResponse
+	decodeBody(t, res, &th)
+	return th
 }
 
 func TestCreateTweetSuccess(t *testing.T) {
@@ -112,10 +134,16 @@ func TestGetTweetByID(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200, body=%s", res.Code, res.Body.String())
 	}
-	var got tweetResponse
+	var got threadResponse
 	decodeBody(t, res, &got)
-	if got.ID != tw.ID || got.Content != "hello" {
-		t.Errorf("got = %+v, want id=%s content=hello", got, tw.ID)
+	if got.Tweet.ID != tw.ID || got.Tweet.Content != "hello" {
+		t.Errorf("got.Tweet = %+v, want id=%s content=hello", got.Tweet, tw.ID)
+	}
+	if len(got.Ancestors) != 0 {
+		t.Errorf("got.Ancestors = %+v, want none for a top-level tweet", got.Ancestors)
+	}
+	if len(got.Replies.Items) != 0 || got.Replies.NextCursor != nil {
+		t.Errorf("got.Replies = %+v, want an empty page", got.Replies)
 	}
 }
 
@@ -329,7 +357,7 @@ func TestTimelineInvalidCursorReturns400(t *testing.T) {
 // tweet.Service.viewOf and writeTweetError default branches.
 func TestGetTweetUnexpectedStoreErrorReturns500(t *testing.T) {
 	t.Parallel()
-	st := memory.New()
+	st := newStore(t)
 	plainHandler := NewHandler(Deps{Config: testConfig(), Store: st})
 	cookie := registerAndExtractCookie(t, plainHandler, "alice@example.com", "alice")
 	tw := createTweet(t, plainHandler, "hello", cookie)
@@ -398,5 +426,212 @@ func TestTimelinePaginationHasNoDuplicatesOrGapsAcrossSampleData(t *testing.T) {
 		if got[i] != wantIDs[i] {
 			t.Fatalf("id at position %d = %q, want %q (order mismatch)", i, got[i], wantIDs[i])
 		}
+	}
+}
+
+// --- Step 10: reply threads (D-47…D-50) ---
+
+func TestCreateReplySuccess(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	aliceCookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	bobCookie := registerAndExtractCookie(t, h, "bob@example.com", "bob")
+	root := createTweet(t, h, "root tweet", aliceCookie)
+
+	reply := createReply(t, h, root.ID, "  a reply  ", bobCookie)
+	if reply.Content != "a reply" {
+		t.Errorf("reply.Content = %q, want trimmed", reply.Content)
+	}
+	if reply.ParentTweetID == nil || *reply.ParentTweetID != root.ID {
+		t.Errorf("reply.ParentTweetID = %v, want %s", reply.ParentTweetID, root.ID)
+	}
+	if reply.Author.Username != "bob" {
+		t.Errorf("reply.Author.Username = %q, want bob", reply.Author.Username)
+	}
+}
+
+func TestCreateReplyRejectsEmptyAndOverlong(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	root := createTweet(t, h, "root tweet", cookie)
+
+	for _, content := range []string{"", "   ", make281CharString()} {
+		res := doAction(t, h, http.MethodPost, "/api/tweets/"+root.ID+"/replies", map[string]string{"content": content}, cookie)
+		if res.Code != http.StatusBadRequest {
+			t.Errorf("content=%q status = %d, want 400, body=%s", content, res.Code, res.Body.String())
+		}
+	}
+}
+
+func TestCreateReplyToMissingOrDeletedParentReturns404(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+
+	res := doAction(t, h, http.MethodPost, "/api/tweets/nope/replies", map[string]string{"content": "hi"}, cookie)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("reply to missing parent status = %d, want 404", res.Code)
+	}
+
+	root := createTweet(t, h, "root tweet", cookie)
+	if res := doAction(t, h, http.MethodDelete, "/api/tweets/"+root.ID, nil, cookie); res.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204", res.Code)
+	}
+	res = doAction(t, h, http.MethodPost, "/api/tweets/"+root.ID+"/replies", map[string]string{"content": "hi"}, cookie)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("reply to deleted parent status = %d, want 404 (D-47)", res.Code)
+	}
+}
+
+func TestCreateReplyWithoutCookieReturns401(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	root := createTweet(t, h, "root tweet", cookie)
+
+	res := doAction(t, h, http.MethodPost, "/api/tweets/"+root.ID+"/replies", map[string]string{"content": "hi"}, nil)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401, body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestGetThreadReturnsAncestorsFocusAndRepliesInOrder(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	aliceCookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	bobCookie := registerAndExtractCookie(t, h, "bob@example.com", "bob")
+
+	root := createTweet(t, h, "root", aliceCookie)
+	mid := createReply(t, h, root.ID, "mid", bobCookie)
+	time.Sleep(2 * time.Millisecond)
+	leaf := createReply(t, h, mid.ID, "leaf", aliceCookie)
+
+	th := getThread(t, h, leaf.ID, aliceCookie)
+	if th.Tweet.ID != leaf.ID {
+		t.Errorf("th.Tweet.ID = %s, want %s", th.Tweet.ID, leaf.ID)
+	}
+	if len(th.Ancestors) != 2 || th.Ancestors[0].ID != root.ID || th.Ancestors[1].ID != mid.ID {
+		t.Fatalf("th.Ancestors = %+v, want [root, mid] root-first", th.Ancestors)
+	}
+
+	// Direct replies come back oldest-first (conversation order, D-48).
+	first := createReply(t, h, root.ID, "first reply", bobCookie)
+	time.Sleep(2 * time.Millisecond)
+	second := createReply(t, h, root.ID, "second reply", aliceCookie)
+
+	rootThread := getThread(t, h, root.ID, aliceCookie)
+	var replyIDs []string
+	for _, r := range rootThread.Replies.Items {
+		replyIDs = append(replyIDs, r.ID)
+	}
+	wantOrder := []string{mid.ID, first.ID, second.ID}
+	if len(replyIDs) != len(wantOrder) {
+		t.Fatalf("reply ids = %v, want %v", replyIDs, wantOrder)
+	}
+	for i, id := range wantOrder {
+		if replyIDs[i] != id {
+			t.Fatalf("reply at position %d = %q, want %q (createdAt ASC)", i, replyIDs[i], id)
+		}
+	}
+	if rootThread.Tweet.ReplyCount != len(wantOrder) {
+		t.Errorf("rootThread.Tweet.ReplyCount = %d, want %d", rootThread.Tweet.ReplyCount, len(wantOrder))
+	}
+}
+
+func TestGetThreadOnTopLevelTweetHasNoAncestors(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	root := createTweet(t, h, "root", cookie)
+
+	th := getThread(t, h, root.ID, cookie)
+	if len(th.Ancestors) != 0 {
+		t.Errorf("th.Ancestors = %+v, want none for a top-level tweet", th.Ancestors)
+	}
+}
+
+func TestGetThreadDeletedFocusReturns404(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	root := createTweet(t, h, "root", cookie)
+	if res := doAction(t, h, http.MethodDelete, "/api/tweets/"+root.ID, nil, cookie); res.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204", res.Code)
+	}
+
+	res := doGet(t, h, "/api/tweets/"+root.ID, cookie)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (D-49)", res.Code)
+	}
+}
+
+// TestGetThreadDeletedAncestorPlaceholderData proves a deleted ancestor still appears in the
+// chain (rather than breaking the walk), marked isDeleted, so the frontend can render the D-49
+// "this tweet was deleted" placeholder while keeping replies to it reachable.
+func TestGetThreadDeletedAncestorPlaceholderData(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	aliceCookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	bobCookie := registerAndExtractCookie(t, h, "bob@example.com", "bob")
+
+	root := createTweet(t, h, "root", aliceCookie)
+	reply := createReply(t, h, root.ID, "reply", bobCookie)
+	if res := doAction(t, h, http.MethodDelete, "/api/tweets/"+root.ID, nil, aliceCookie); res.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204", res.Code)
+	}
+
+	th := getThread(t, h, reply.ID, bobCookie)
+	if len(th.Ancestors) != 1 || th.Ancestors[0].ID != root.ID {
+		t.Fatalf("th.Ancestors = %+v, want [root]", th.Ancestors)
+	}
+	if !th.Ancestors[0].IsDeleted {
+		t.Error("th.Ancestors[0].IsDeleted = false, want true")
+	}
+}
+
+func TestReplyExcludedFromTimelineAndProfileTweets(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	root := createTweet(t, h, "root", cookie)
+	reply := createReply(t, h, root.ID, "a reply", cookie)
+
+	res := doGet(t, h, "/api/timeline", cookie)
+	var timeline tweetListResponse
+	decodeBody(t, res, &timeline)
+	for _, tw := range timeline.Items {
+		if tw.ID == reply.ID {
+			t.Error("timeline must not include a reply (D-50)")
+		}
+	}
+
+	res = doGet(t, h, "/api/users/alice/tweets", cookie)
+	var list tweetListResponse
+	decodeBody(t, res, &list)
+	for _, tw := range list.Items {
+		if tw.ID == reply.ID {
+			t.Error("profile tweet list must not include a reply (D-50)")
+		}
+	}
+}
+
+func TestReplyCountExcludesDeletedReplies(t *testing.T) {
+	t.Parallel()
+	h := newAuthTestHandler(t)
+	cookie := registerAndExtractCookie(t, h, "alice@example.com", "alice")
+	root := createTweet(t, h, "root", cookie)
+	reply := createReply(t, h, root.ID, "a reply", cookie)
+
+	if res := doAction(t, h, http.MethodDelete, "/api/tweets/"+reply.ID, nil, cookie); res.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204", res.Code)
+	}
+
+	th := getThread(t, h, root.ID, cookie)
+	if th.Tweet.ReplyCount != 0 {
+		t.Errorf("ReplyCount = %d, want 0 (D-49 excludes deleted replies)", th.Tweet.ReplyCount)
+	}
+	if len(th.Replies.Items) != 0 {
+		t.Errorf("Replies.Items = %+v, want none (deleted reply excluded)", th.Replies.Items)
 	}
 }

@@ -204,3 +204,143 @@ func TestListByUsernameUnknownReturnsNotFound(t *testing.T) {
 		t.Errorf("ListByUsername(unknown) error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestCreateReplySetsParentAndValidatesContent(t *testing.T) {
+	t.Parallel()
+	st, users := newStoreWithUsers(t, "alice", "bob")
+	svc := tweet.New(st)
+	root, err := svc.Create(users["alice"].ID, "root")
+	if err != nil {
+		t.Fatalf("Create(root) error = %v", err)
+	}
+
+	reply, err := svc.CreateReply(users["bob"].ID, root.Tweet.ID, "  a reply  ")
+	if err != nil {
+		t.Fatalf("CreateReply() error = %v", err)
+	}
+	if reply.Tweet.ParentTweetID == nil || *reply.Tweet.ParentTweetID != root.Tweet.ID {
+		t.Errorf("reply.ParentTweetID = %v, want %s", reply.Tweet.ParentTweetID, root.Tweet.ID)
+	}
+	if reply.Tweet.Content != "a reply" {
+		t.Errorf("reply.Content = %q, want trimmed", reply.Tweet.Content)
+	}
+
+	if _, err := svc.CreateReply(users["bob"].ID, root.Tweet.ID, ""); err == nil {
+		t.Fatal("CreateReply(empty content) error = nil, want ValidationError")
+	} else {
+		var vErr *tweet.ValidationError
+		if !errors.As(err, &vErr) {
+			t.Fatalf("CreateReply(empty content) error = %v, want *ValidationError", err)
+		}
+	}
+}
+
+func TestCreateReplyToMissingOrDeletedParentReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	st, users := newStoreWithUsers(t, "alice")
+	svc := tweet.New(st)
+
+	if _, err := svc.CreateReply(users["alice"].ID, "nope", "hi"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("CreateReply(missing parent) error = %v, want ErrNotFound", err)
+	}
+
+	root, err := svc.Create(users["alice"].ID, "root")
+	if err != nil {
+		t.Fatalf("Create(root) error = %v", err)
+	}
+	if err := svc.Delete(users["alice"].ID, root.Tweet.ID); err != nil {
+		t.Fatalf("Delete(root) error = %v", err)
+	}
+	if _, err := svc.CreateReply(users["alice"].ID, root.Tweet.ID, "hi"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("CreateReply(deleted parent) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestGetThreadReturnsAncestorsTweetAndReplies(t *testing.T) {
+	t.Parallel()
+	st, users := newStoreWithUsers(t, "alice", "bob", "carol")
+	svc := tweet.New(st)
+
+	root, err := svc.Create(users["alice"].ID, "root")
+	if err != nil {
+		t.Fatalf("Create(root) error = %v", err)
+	}
+	mid, err := svc.CreateReply(users["bob"].ID, root.Tweet.ID, "mid")
+	if err != nil {
+		t.Fatalf("CreateReply(mid) error = %v", err)
+	}
+	leaf, err := svc.CreateReply(users["carol"].ID, mid.Tweet.ID, "leaf")
+	if err != nil {
+		t.Fatalf("CreateReply(leaf) error = %v", err)
+	}
+
+	th, err := svc.GetThread(users["alice"].ID, leaf.Tweet.ID, nil, 20)
+	if err != nil {
+		t.Fatalf("GetThread() error = %v", err)
+	}
+	if th.Tweet.Tweet.ID != leaf.Tweet.ID {
+		t.Errorf("th.Tweet.ID = %s, want %s", th.Tweet.Tweet.ID, leaf.Tweet.ID)
+	}
+	if len(th.Ancestors) != 2 || th.Ancestors[0].Tweet.ID != root.Tweet.ID || th.Ancestors[1].Tweet.ID != mid.Tweet.ID {
+		t.Fatalf("th.Ancestors = %+v, want [root, mid] root-first", th.Ancestors)
+	}
+
+	rootThread, err := svc.GetThread(users["alice"].ID, root.Tweet.ID, nil, 20)
+	if err != nil {
+		t.Fatalf("GetThread(root) error = %v", err)
+	}
+	if len(rootThread.Replies.Items) != 1 || rootThread.Replies.Items[0].Tweet.ID != mid.Tweet.ID {
+		t.Fatalf("rootThread.Replies = %+v, want just [mid]", rootThread.Replies.Items)
+	}
+	if rootThread.Tweet.ReplyCount != 1 {
+		t.Errorf("rootThread.Tweet.ReplyCount = %d, want 1", rootThread.Tweet.ReplyCount)
+	}
+}
+
+func TestGetThreadDeletedFocusReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	st, users := newStoreWithUsers(t, "alice")
+	svc := tweet.New(st)
+	root, err := svc.Create(users["alice"].ID, "root")
+	if err != nil {
+		t.Fatalf("Create(root) error = %v", err)
+	}
+	if err := svc.Delete(users["alice"].ID, root.Tweet.ID); err != nil {
+		t.Fatalf("Delete(root) error = %v", err)
+	}
+	if _, err := svc.GetThread(users["alice"].ID, root.Tweet.ID, nil, 20); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("GetThread(deleted focus) error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestGetThreadIncludesDeletedAncestorPlaceholderData proves Ancestors' documented exception
+// (deleted rows are not excluded) reaches the service layer: a deleted ancestor still appears
+// in the chain, marked deleted, so the D-49 "this tweet was deleted" placeholder can render.
+func TestGetThreadIncludesDeletedAncestorPlaceholderData(t *testing.T) {
+	t.Parallel()
+	st, users := newStoreWithUsers(t, "alice", "bob")
+	svc := tweet.New(st)
+
+	root, err := svc.Create(users["alice"].ID, "root")
+	if err != nil {
+		t.Fatalf("Create(root) error = %v", err)
+	}
+	reply, err := svc.CreateReply(users["bob"].ID, root.Tweet.ID, "reply")
+	if err != nil {
+		t.Fatalf("CreateReply() error = %v", err)
+	}
+	if err := svc.Delete(users["alice"].ID, root.Tweet.ID); err != nil {
+		t.Fatalf("Delete(root) error = %v", err)
+	}
+
+	th, err := svc.GetThread(users["bob"].ID, reply.Tweet.ID, nil, 20)
+	if err != nil {
+		t.Fatalf("GetThread() error = %v", err)
+	}
+	if len(th.Ancestors) != 1 || th.Ancestors[0].Tweet.ID != root.Tweet.ID {
+		t.Fatalf("th.Ancestors = %+v, want [root]", th.Ancestors)
+	}
+	if !th.Ancestors[0].Tweet.IsDeleted() {
+		t.Error("th.Ancestors[0].Tweet.IsDeleted() = false, want true")
+	}
+}

@@ -11,14 +11,14 @@ import (
 
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/domain"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/service/auth"
-	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store"
 )
 
-// explodingEmailStore wraps a real memory store but fails GetUserByEmail with an error that is
+// explodingEmailStore wraps a real store but fails GetUserByEmail with an error that is
 // neither ErrNotFound nor a sentinel Login/Register know about, so callers can exercise the
 // "unexpected store error" branch (a 500, not a 401/409) without needing a second store backend.
 type explodingEmailStore struct {
-	*memory.Store
+	store.Store
 }
 
 func (s *explodingEmailStore) GetUserByEmail(string) (domain.User, error) {
@@ -27,7 +27,7 @@ func (s *explodingEmailStore) GetUserByEmail(string) (domain.User, error) {
 
 func newAuthTestHandler(t *testing.T) http.Handler {
 	t.Helper()
-	return NewHandler(Deps{Config: testConfig(), Store: memory.New()})
+	return NewHandler(Deps{Config: testConfig(), Store: newStore(t)})
 }
 
 // jsonRequest builds a request with a JSON body and the Content-Type header the jsonOnly
@@ -235,7 +235,7 @@ func TestMeReturnsAuthenticatedUser(t *testing.T) {
 func TestMeWithTokenForUnknownUserReturns401(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	st := memory.New()
+	st := newStore(t)
 	h := NewHandler(Deps{Config: cfg, Store: st})
 
 	// A token that verifies fine (correct signature, not expired) but whose subject does not
@@ -258,7 +258,7 @@ func TestMeWithTokenForUnknownUserReturns401(t *testing.T) {
 
 func TestLoginUnexpectedStoreErrorReturns500(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(Deps{Config: testConfig(), Store: &explodingEmailStore{Store: memory.New()}})
+	h := NewHandler(Deps{Config: testConfig(), Store: &explodingEmailStore{Store: newStore(t)}})
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, jsonRequest(t, http.MethodPost, "/api/auth/login", map[string]string{"email": "x@example.com", "password": "whatever"}))
 

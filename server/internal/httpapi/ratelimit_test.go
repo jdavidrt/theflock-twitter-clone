@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/config"
-	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
 )
 
 func devConfig() config.Config {
@@ -23,7 +22,7 @@ func loginAttempt(t *testing.T, remoteAddr string) *http.Request {
 
 func TestAuthRateLimitBlocksAfterBudgetExhausted(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(Deps{Config: devConfig(), Store: memory.New()})
+	h := NewHandler(Deps{Config: devConfig(), Store: newStore(t)})
 
 	var last *httptest.ResponseRecorder
 	for range authRateLimitRequests + 1 {
@@ -42,7 +41,7 @@ func TestAuthRateLimitBlocksAfterBudgetExhausted(t *testing.T) {
 
 func TestAuthRateLimitIsPerIP(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(Deps{Config: devConfig(), Store: memory.New()})
+	h := NewHandler(Deps{Config: devConfig(), Store: newStore(t)})
 
 	for range authRateLimitRequests {
 		res := httptest.NewRecorder()
@@ -61,7 +60,7 @@ func TestAuthRateLimitIsPerIP(t *testing.T) {
 
 func TestAuthRateLimitDisabledInTestEnv(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(Deps{Config: testConfig(), Store: memory.New()})
+	h := NewHandler(Deps{Config: testConfig(), Store: newStore(t)})
 
 	var last *httptest.ResponseRecorder
 	for range authRateLimitRequests + 5 {
@@ -75,7 +74,7 @@ func TestAuthRateLimitDisabledInTestEnv(t *testing.T) {
 
 func TestAuthRateLimitDoesNotAffectOtherRoutes(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(Deps{Config: devConfig(), Store: memory.New()})
+	h := NewHandler(Deps{Config: devConfig(), Store: newStore(t)})
 	for i := range authRateLimitRequests + 5 {
 		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 		req.RemoteAddr = "203.0.113.11:12345"

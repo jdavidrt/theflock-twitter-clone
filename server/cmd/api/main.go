@@ -20,6 +20,7 @@ import (
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/sample"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/sqlite"
 )
 
 func main() {
@@ -99,9 +100,44 @@ func buildStore(cfg config.Config, logger *slog.Logger) (store.Store, error) {
 			"likes", counts.Likes,
 		)
 		return st, nil
+	case config.StoreSQLite:
+		return buildSQLiteStore(cfg, logger)
 	default:
 		return nil, fmt.Errorf("unsupported STORE %q", cfg.Store)
 	}
+}
+
+// buildSQLiteStore opens (creating on first run) the SQLite file at cfg.SQLitePath and seeds it
+// from cfg.SampleDataPath only when the users table is empty, so a fresh clone boots seeded
+// while later restarts keep whatever the API has since persisted (D-66).
+func buildSQLiteStore(cfg config.Config, logger *slog.Logger) (store.Store, error) {
+	st, err := sqlite.Open(cfg.SQLitePath)
+	if err != nil {
+		return nil, fmt.Errorf("opening sqlite store at %s: %w", cfg.SQLitePath, err)
+	}
+
+	empty, err := st.IsEmpty()
+	if err != nil {
+		return nil, fmt.Errorf("checking sqlite store at %s: %w", cfg.SQLitePath, err)
+	}
+	if !empty {
+		logger.Info("opened sqlite store", "store", cfg.Store, "path", cfg.SQLitePath)
+		return st, nil
+	}
+
+	counts, err := sample.Load(cfg.SampleDataPath, cfg.BcryptCost(), st)
+	if err != nil {
+		return nil, fmt.Errorf("seeding sqlite store from %s: %w", cfg.SampleDataPath, err)
+	}
+	logger.Info("seeded empty sqlite store",
+		"store", cfg.Store,
+		"path", cfg.SQLitePath,
+		"users", counts.Users,
+		"tweets", counts.Tweets,
+		"follows", counts.Follows,
+		"likes", counts.Likes,
+	)
+	return st, nil
 }
 
 // newLogger follows D-57: text in development, JSON in production, silent in test.
