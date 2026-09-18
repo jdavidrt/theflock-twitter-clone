@@ -3,6 +3,7 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -65,6 +66,32 @@ func limitBody(n int64) Middleware {
 			}
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// jsonOnly rejects state-changing requests (POST/PUT/PATCH/DELETE) whose Content-Type is not
+// application/json (D-56). An HTML form can only submit
+// application/x-www-form-urlencoded/multipart/form-data/text/plain, so together with the
+// session cookie's SameSite=Lax this blocks classic cross-site form-post CSRF without needing
+// a CSRF token.
+func jsonOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStateChangingMethod(r.Method) {
+			if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				writeError(w, http.StatusBadRequest, CodeValidation, "Content-Type must be application/json", nil)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isStateChangingMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
 	}
 }
 

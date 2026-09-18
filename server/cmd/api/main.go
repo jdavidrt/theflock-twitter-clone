@@ -17,6 +17,7 @@ import (
 
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/config"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/httpapi"
+	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/memory"
 	"github.com/jdavidrt/theflock-twitter-clone/server/internal/store/sample"
 )
@@ -42,13 +43,14 @@ func run() error {
 		logger.Info("loaded environment file", "path", loaded)
 	}
 
-	if err := loadStore(cfg, logger); err != nil {
+	st, err := buildStore(cfg, logger)
+	if err != nil {
 		return err
 	}
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           httpapi.NewHandler(httpapi.Deps{Config: cfg, Logger: logger}),
+		Handler:           httpapi.NewHandler(httpapi.Deps{Config: cfg, Logger: logger, Store: st}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -79,16 +81,15 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// loadStore builds the configured store and loads the sample data into it, logging what was
-// loaded (D-66). The store built here is not yet wired into the handler — that lands with
-// the first service in Step 3; today this only proves boot-time loading works.
-func loadStore(cfg config.Config, logger *slog.Logger) error {
+// buildStore builds the configured store and loads the sample data into it, logging what was
+// loaded (D-66).
+func buildStore(cfg config.Config, logger *slog.Logger) (store.Store, error) {
 	switch cfg.Store {
 	case config.StoreMemory:
 		st := memory.New()
 		counts, err := sample.Load(cfg.SampleDataPath, cfg.BcryptCost(), st)
 		if err != nil {
-			return fmt.Errorf("loading sample data from %s: %w", cfg.SampleDataPath, err)
+			return nil, fmt.Errorf("loading sample data from %s: %w", cfg.SampleDataPath, err)
 		}
 		logger.Info("loaded sample data",
 			"store", cfg.Store,
@@ -97,9 +98,9 @@ func loadStore(cfg config.Config, logger *slog.Logger) error {
 			"follows", counts.Follows,
 			"likes", counts.Likes,
 		)
-		return nil
+		return st, nil
 	default:
-		return fmt.Errorf("unsupported STORE %q", cfg.Store)
+		return nil, fmt.Errorf("unsupported STORE %q", cfg.Store)
 	}
 }
 

@@ -1,0 +1,173 @@
+/* D-28 layout: mobile sticky top bar + fixed bottom tab bar, tablet icon rail, desktop
+   labeled sidebar + centered content column. Base rules are mobile; each breakpoint below
+   only adds/overrides what changes (D-68/agreement 5). */
+
+.app-shell {
+  min-height: 100dvh;
+  padding-top: 52px;
+  padding-bottom: 56px;
+}
+
+.app-shell__topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  z-index: 10;
+}
+
+.app-shell__topbar-title {
+  font-weight: 700;
+  font-size: 1.0625rem;
+}
+
+.app-shell__logout {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+}
+
+.app-shell__rail {
+  display: none;
+}
+
+.app-shell__bottombar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+  z-index: 10;
+}
+
+.app-shell__nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font: inherit;
+}
+
+.app-shell__bottombar .app-shell__nav-item {
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+}
+
+.app-shell__bottombar .app-shell__nav-label {
+  font-size: 0.65rem;
+}
+
+.app-shell__nav-item--active {
+  color: var(--color-primary);
+}
+
+.app-shell__content {
+  width: 100%;
+  padding: var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .app-shell {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .app-shell__topbar,
+  .app-shell__bottombar {
+    display: none;
+  }
+
+  .app-shell__rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 68px;
+    padding: var(--space-4) 0;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+
+  .app-shell__rail .app-shell__nav-item {
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  .app-shell__rail .app-shell__nav-label {
+    display: none;
+  }
+
+  .app-shell__rail-logout {
+    margin-top: auto;
+  }
+
+  .app-shell__main {
+    margin-left: 68px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .app-shell__content {
+    max-width: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-shell__rail {
+    width: 275px;
+    align-items: stretch;
+    padding: var(--space-4);
+  }
+
+  .app-shell__rail .app-shell__nav-item {
+    width: auto;
+    height: auto;
+    justify-content: flex-start;
+    padding: var(--space-3);
+    border-radius: 999px;
+  }
+
+  .app-shell__rail .app-shell__nav-label {
+    display: inline;
+    font-weight: 600;
+    font-size: 1.0625rem;
+  }
+
+  .app-shell__main {
+    margin-left: 275px;
+  }
+
+  .app-shell__content {
+    max-width: var(--content-max-width);
+    padding: var(--space-6);
+  }
+}

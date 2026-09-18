@@ -1,0 +1,32 @@
+.tweet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tweet-list__status {
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+.tweet-list__status--error {
+  color: var(--color-danger);
+}
+
+.tweet-list__load-more {
+  display: block;
+  width: calc(100% - 2 * var(--space-4));
+  margin: var(--space-4);
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tweet-list__load-more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

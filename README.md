@@ -2,7 +2,7 @@
 
 A full-stack Twitter/X clone built for The Flock's technical challenge: custom authentication, tweets, a followed-users timeline, likes, follows, search, reply threads, and a mobile-first responsive UI. Go API + SQLite on the back, React + Vite on the front.
 
-> **Project status:** Step 2 complete (2026-09-16) — domain model, the hand-authored sample dataset, and the in-memory store are in place and verified (`go build`/`go test` green). No feature endpoints exist yet; auth lands in Step 3. SQLite persistence lands as its own step before delivery. This README describes the current setup and is kept accurate as implementation lands (see commit history). Sections not yet implemented are marked **Planned**.
+> **Project status:** Step 9 complete (2026-09-18) — profile pages (`/:username`), follow/unfollow with optimistic updates, an inline bio editor, paginated followers/following lists (`/:username/followers`, `/:username/following`), and debounced user search (`/search`) are all live and wired into the nav. Every required frontend flow in the brief now has a passing integration test (login, create tweet, follow). Verified in the browser against the real Go API and alice's real sample follow graph, plus a passing client integration test suite (Vitest + React Testing Library + MSW, 6/6). Step 8's home timeline and Step 7's app shell/auth loop remain in place. Steps 2–6's domain model, sample dataset, in-memory store, custom authentication, profile/follow graph, tweets/timeline/likes, and user search remain in place on the backend (backend coverage **93.4 % total statements**, D-32 floor is 85 %). SQLite persistence lands as its own step before delivery. This README describes the current setup and is kept accurate as implementation lands (see commit history). Sections not yet implemented are marked **Planned**.
 
 ---
 
@@ -69,15 +69,16 @@ The stack itself isn't graded — see [my-docs/VALIDATION-OF-REQUIREMENTS.md](my
   /internal/config      Typed configuration from env + a small .env loader
   /internal/httpapi     Handlers, middlewares, JSON responses (the HTTP layer)
   /internal/domain      Entity structs (User, Tweet, Follow, Like)
-  /internal/validation  Pure validation rules (username, email, 280 chars…)   — Step 3
-  /internal/service     Business rules, no HTTP imports                       — Step 3+
+  /internal/validation  Pure validation rules (username, email, password, display name)
+  /internal/service     Business rules, no HTTP imports — auth (Step 3), social/follows (Step 4), tweets/timeline/likes/search (Steps 5-6)
   /internal/store       Store interface + memory store + sample-data loader + conformance suite; sqlite — Step 11
   /data/sample.json     Hand-authored sample dataset (12 users, tweets, follows, likes, replies)
 /client                 React + Vite + TypeScript SPA
-  /src/pages            Route-level views
-  /src/components       Reusable UI
-  /src/api              TanStack Query hooks per resource
-  /tests                Frontend integration tests
+  /src/pages            Route-level views (Home, Login, Register, Profile, FollowList, Search, NotFound)
+  /src/components       Reusable UI (AppShell, AuthLayout, Avatar, ComposeBox, TweetCard, TweetList, Protected/PublicOnlyRoute, icons)
+  /src/context          AuthContext — resolves the session once from GET /api/auth/me
+  /src/lib              Typed API client (api.ts), validation mirror (validation.ts, D-54), relative-time formatting (time.ts, D-30), infinite-scroll/tweet-feed hooks (useInfiniteScrollSentinel.ts, useTweetFeed.ts)
+  /tests                Vitest + React Testing Library + MSW integration tests
 /e2e                    Playwright E2E specs                                    — Step 12
 /.github/workflows      CI: Go (gofmt, vet, race tests, coverage ≥ 85 %) + client (lint, build, tests)
 .env.example            Every environment variable the app reads
@@ -101,7 +102,7 @@ The same model is served by both store implementations: the in-memory store (map
 
 ## Runbook (Setup & Operations)
 
-> The commands below reflect what exists **today** (Step 2: scaffold + health endpoint + domain model + sample data + in-memory store, loaded at boot but not yet exposed by any feature endpoint). Later steps add to this section in the same commit that adds the feature.
+> The commands below reflect what exists **today** (Steps 1–7: scaffold, health endpoint, domain model + sample data + in-memory store, custom authentication, user profiles + the follow graph, tweets/timeline/likes, user search, and the frontend app shell + auth UI). Later steps add to this section in the same commit that adds the feature.
 
 ### Prerequisites
 
@@ -123,15 +124,15 @@ npm run dev                   # API on http://localhost:3000, client on http://l
 
 `npm run dev` runs `go run ./cmd/api` in `server/` and the Vite dev server in `client/` side by side (Go modules are downloaded on first run). The client calls the API through a relative `/api` path that Vite proxies to port 3000, so there is no CORS setup and no client-side env var.
 
-Smoke check: `curl http://localhost:3000/api/health` → `{"status":"ok"}`.
+Smoke check: `curl http://localhost:3000/api/health` → `{"status":"ok"}`. Open `http://localhost:5173` in a browser: an unauthenticated visit redirects to `/login`; register or log in (try the [sample credentials](#sample-credentials) below) and you land on `/` inside the app shell (bottom tab bar under 640px, an icon rail from 640px, a labeled sidebar with a centered content column from 1024px — D-28), with a logout action always reachable. `/login` and `/register` redirect an already-authenticated visitor back to `/`.
 
-On start, the API loads `server/data/sample.json` into memory and logs the counts (`loaded sample data store=memory users=12 tweets=169 follows=63 likes=499`); while the in-memory store is the default, **restarting the API resets the data to the sample**. No endpoint serves this data yet — that starts in Step 3. **Planned (Step 11):** the default switches to SQLite (`server/data/twitter.db`, created and seeded automatically on first start; `npm run seed` resets it).
+On start, the API loads `server/data/sample.json` into memory and logs the counts (`loaded sample data store=memory users=12 tweets=169 follows=63 likes=499`); while the in-memory store is the default (Phase 1, D-66), **restarting the API resets all data — including anything created through the API — back to the sample dataset.** This is a development convenience, not the delivered behavior: Step 11 switches the default to SQLite, which persists across restarts. Auth endpoints are live: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`. Profile and follow endpoints: `GET /api/users/{username}` (profile with counts + `isFollowedByMe`), `PATCH /api/users/me` (edit display name/bio), `POST`/`DELETE /api/users/{username}/follow` (idempotent follow/unfollow), `GET /api/users/{username}/followers` and `/following` (cursor-paginated). Tweet, timeline and like endpoints: `POST /api/tweets` (create), `GET`/`DELETE /api/tweets/{id}` (read / author-only soft delete), `GET /api/users/{username}/tweets` (a user's tweets), `GET /api/timeline` (followed-users + own tweets, cursor-paginated), `POST`/`DELETE /api/tweets/{id}/like` (idempotent like/unlike). Search: `GET /api/search/users?q=` (case-insensitive substring on username or display name, capped at 20 results) — see [Sample credentials](#sample-credentials) to try all of the above against the seeded data. **Planned (Step 11):** the default switches to SQLite (`server/data/twitter.db`, created and seeded automatically on first start; `npm run seed` resets it).
 
 ### Running tests
 
 ```bash
 npm test                   # Go suite (server) + client suite
-npm run test:coverage      # Go coverage over server/internal — target ≥ 85 % total statements
+npm run test:coverage      # Go coverage over server/internal — 93.4 % total statements as of Step 6 (floor: 85 %, D-32)
 npm run lint               # ESLint (client) + go vet (server)
 npm run format:check       # Prettier check (client + config files); CI also checks gofmt
 npm run format             # Prettier --write + gofmt -w
@@ -139,6 +140,8 @@ npm run build              # go build → server/bin/, tsc + vite build → clie
 ```
 
 Server-only shortcuts from `server/`: `go test ./...`, `go test ./internal/... -coverpkg=./internal/... -coverprofile=coverage.out && go tool cover -func=coverage.out` (the `-coverpkg` flag is needed once cross-package test helpers exist, e.g. `internal/store/storetest` — see DECISIONS.md D-32).
+
+Client-only shortcut from `client/`: `npx vitest` (watch mode). The suite renders the real `App` against a mocked API (MSW) and now covers all three required frontend flows: `client/tests/integration/login.test.tsx` (login end to end — valid credentials land on `/` with the username visible in the nav, invalid credentials show the server's error message inline), `client/tests/integration/compose-tweet.test.tsx` (the live counter updates while typing, submitting posts a tweet and it appears at the top of the timeline, plus the 280-code-point submit-disable boundary), and `client/tests/integration/follow-flow.test.tsx` (clicking Follow on another user's profile flips the button to "Following" and increments the follower count; the reverse for Unfollow).
 
 **Planned (Step 12):** `npm run test:e2e` — Playwright auth flow against an already-running `npm run dev`.
 
@@ -159,7 +162,21 @@ Copy [`.env.example`](.env.example) to `.env` at the repository root. The API lo
 
 ### Sample credentials
 
-`server/data/sample.json` contains 12 users sharing the password `Password123!`, led by the fixed sample account `alice@example.com` (username `alice`). No login endpoint exists yet (Step 3), but the data is loaded and queryable in-process at boot today.
+`server/data/sample.json` contains 12 users sharing the password `Password123!`, led by the fixed sample account `alice@example.com` (username `alice`). Confirmed against a **freshly started** API (Phase 1 loads the sample dataset fresh on every boot — see the restart note above):
+
+```bash
+curl -i -c cookies.txt -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@example.com","password":"Password123!"}'
+
+curl -i -b cookies.txt http://localhost:3000/api/auth/me
+
+curl -i -b cookies.txt http://localhost:3000/api/users/alice
+
+curl -i -b cookies.txt "http://localhost:3000/api/timeline?limit=5"
+
+curl -i -b cookies.txt "http://localhost:3000/api/search/users?q=aR"   # case-insensitive substring, matches carol & oscar
+```
 
 ---
 
@@ -182,6 +199,7 @@ Copy [`.env.example`](.env.example) to `.env` at the repository root. The API lo
 - **Soft deletes:** deleted tweets keep their row (`deleted_at`) so reply threads don't lose their parent; they never appear in feeds or counts.
 - **In-memory phase:** until the SQLite store lands (Step 11), data written through the API lives in process memory and a restart resets it to the sample dataset. This is a development convenience, not the delivered behavior.
 - **Single-writer SQLite:** fine for this scale; a multi-instance deployment would need a server database.
+- **Client-side validation is a UX mirror, not the source of truth (D-54):** `client/src/lib/validation.ts` pins the same length bounds, username regex and code-point counting as the server so bad input is caught before a round trip, but business rules like the reserved-username list are checked server-side only — the client just displays whatever `details` the server returns.
 - **No Docker Compose yet:** deferred to the post-MVP backlog so the core work never depends on it; the local Runbook needs only Go and Node.
 - **No image uploads, real-time updates, or notifications** in this delivery — deferred deliberately to keep the required features solid within 72 hours. See [my-docs/VALIDATION-OF-REQUIREMENTS.md](my-docs/VALIDATION-OF-REQUIREMENTS.md) §8 for the full out-of-scope list and rationale.
 - This section will grow as real implementation trade-offs are made.
