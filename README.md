@@ -2,12 +2,22 @@
 
 A full-stack Twitter/X clone built for The Flock's technical challenge: custom authentication, tweets, a followed-users timeline, likes, follows, search, reply threads, and a mobile-first responsive UI. Go API + SQLite on the back, React + Vite on the front.
 
+## Purpose & Rights Notice
+
+> [!IMPORTANT]
+> **This repository exists for a single purpose: it is the author's submission for The Flock's "AI Verified" technical challenge** — a demonstration that agentic AI tooling can be directed to build a working Twitter-style application from a written brief. It is not an open-source project, a template, or a product.
+>
+> - **All rights reserved.** The author ([@jdavidrt](https://github.com/jdavidrt)) is the sole rights holder. No license is granted: the source code, documentation, and commit history may not be copied, redistributed, or incorporated into any commercial or business project without the author's explicit written permission.
+> - **No AI training.** This repository, in whole or in part, may not be used as training, fine-tuning, evaluation, or benchmarking data for any machine-learning or AI model.
+> - **Evaluation use is welcome.** Cloning, running, and reviewing the project locally as part of The Flock's assessment is the intended and expected use.
+
 > **Project status:** Step 12 complete (2026-09-18) — the last step before delivery. All 12 implementation steps are done: custom auth, profiles/follows, tweets/timeline/likes/search, reply threads (bonus), the mobile-first responsive UI, and the **SQLite-by-default** persistence layer (`internal/store/sqlite`, seeded from `server/data/sample.json` via `npm run seed` or automatically on a fresh clone's first boot). The full `internal/store/storetest` conformance suite and the entire `internal/httpapi` integration suite pass against both stores. This step added the required Playwright E2E auth-flow spec (`npm run test:e2e`, `/e2e/auth.spec.ts`), a responsive QA pass at 375/768/1280px that found and fixed two real bugs (a nav item losing its accessible name once its label is visually hidden at the tablet breakpoint, and an undersized 36px follow-button touch target), and this documentation pass. Backend coverage **91.5 % total statements** (D-32 floor is 85 %); client suite **8/8** passing; E2E spec passing against the real stack. This README describes the current, final setup — see commit history for how it got here.
 
 ---
 
 ## Table of Contents
 
+- [Purpose & Rights Notice](#purpose--rights-notice)
 - [Features](#features)
 - [Technology Stack & Justification](#technology-stack--justification)
 - [Architecture](#architecture)
