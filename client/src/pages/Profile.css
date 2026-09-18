@@ -102,6 +102,12 @@
 .profile__bio-save {
   background: var(--color-primary);
   color: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.profile__bio-save:hover:not(:disabled) {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .profile__bio-save:disabled,
@@ -138,6 +144,20 @@
   font-weight: 700;
   font-size: 0.9375rem;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.profile__follow-btn:hover:not(:disabled) {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.profile__follow-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+.profile__follow-btn--following {
+  box-shadow: none;
 }
 
 .profile__follow-btn--following {

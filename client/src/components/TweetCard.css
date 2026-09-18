@@ -3,6 +3,12 @@
   gap: var(--space-3);
   padding: var(--space-4);
   border-bottom: 1px solid var(--color-border);
+  animation: fade-in-up 0.25s ease both;
+  transition: background-color 0.15s ease;
+}
+
+.tweet-card:hover {
+  background-color: rgba(15, 20, 25, 0.03);
 }
 
 .tweet-card__body {
@@ -63,8 +69,9 @@
   align-items: center;
   gap: var(--space-1);
   min-height: 44px;
-  padding-inline: var(--space-1);
+  padding-inline: var(--space-2);
   border: none;
+  border-radius: 999px;
   background: none;
   color: var(--color-text-muted);
   font-size: 0.8125rem;
@@ -72,13 +79,32 @@
   cursor: pointer;
 }
 
+.tweet-card__action:hover {
+  background-color: rgba(29, 155, 240, 0.1);
+  color: var(--color-primary);
+}
+
+.tweet-card__action:active {
+  transform: scale(0.92);
+}
+
 .tweet-card__action svg {
   width: 18px;
   height: 18px;
 }
 
+.tweet-card__action--like:hover,
+.tweet-card__action--delete:hover {
+  background-color: rgba(244, 33, 46, 0.1);
+  color: var(--color-danger);
+}
+
 .tweet-card__action--like.tweet-card__action--liked {
   color: var(--color-danger);
+}
+
+.tweet-card__action--liked svg {
+  animation: like-pop 0.3s ease;
 }
 
 .tweet-card__action--delete {

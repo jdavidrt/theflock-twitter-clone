@@ -20,6 +20,7 @@
   padding: 0 var(--space-4);
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
   z-index: 10;
 }
 
@@ -31,6 +32,7 @@
 .app-shell__logout {
   background: none;
   border: none;
+  border-radius: 50%;
   cursor: pointer;
   color: var(--color-text);
   display: flex;
@@ -53,6 +55,7 @@
   display: flex;
   background: var(--color-bg);
   border-top: 1px solid var(--color-border);
+  box-shadow: 0 -1px 3px rgba(15, 20, 25, 0.06);
   z-index: 10;
 }
 
@@ -60,9 +63,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  border-radius: var(--radius);
   color: var(--color-text-muted);
   text-decoration: none;
   font: inherit;
+}
+
+.app-shell__bottombar .app-shell__nav-item:hover,
+.app-shell__logout:hover {
+  background-color: var(--color-border);
 }
 
 .app-shell__bottombar .app-shell__nav-item {
@@ -120,6 +129,10 @@
     background: none;
     border: none;
     cursor: pointer;
+  }
+
+  .app-shell__rail .app-shell__nav-item:hover {
+    background-color: var(--color-border);
   }
 
   .app-shell__rail .app-shell__nav-label {

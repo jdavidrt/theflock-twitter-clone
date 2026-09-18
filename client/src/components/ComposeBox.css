@@ -13,6 +13,12 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   font-size: 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.compose__input:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(29, 155, 240, 0.15);
 }
 
 .compose__error {
@@ -48,10 +54,17 @@
   font-weight: 700;
   font-size: 0.9375rem;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }
 
 .compose__submit:hover:not(:disabled) {
   background: var(--color-primary-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.compose__submit:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
 }
 
 .compose__submit:disabled {

@@ -9,6 +9,10 @@
 .auth-layout__card {
   width: 100%;
   max-width: 360px;
+  padding: var(--space-6) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
 }
 
 .auth-layout__title {
@@ -43,6 +47,12 @@
   border-radius: var(--radius);
   font-weight: 400;
   font-size: 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.auth-form__field input:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(29, 155, 240, 0.15);
 }
 
 .auth-form__field-error {
@@ -66,10 +76,17 @@
   font-weight: 700;
   font-size: 1rem;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }
 
 .auth-form__submit:hover:not(:disabled) {
   background: var(--color-primary-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.auth-form__submit:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
 }
 
 .auth-form__submit:disabled {

@@ -32,6 +32,11 @@
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border);
+  transition: background-color 0.15s ease;
+}
+
+.follow-list__item:hover {
+  background-color: rgba(15, 20, 25, 0.03);
 }
 
 .follow-list__link {
@@ -79,6 +84,16 @@
   font-weight: 700;
   font-size: 0.8125rem;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.follow-list__follow-btn:hover:not(:disabled) {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.follow-list__follow-btn--following {
+  box-shadow: none;
 }
 
 .follow-list__follow-btn--following {

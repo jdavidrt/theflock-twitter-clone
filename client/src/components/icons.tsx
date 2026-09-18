@@ -66,7 +66,7 @@ export function ReplyIcon(props: SVGProps<SVGSVGElement>) {
 export function LikeIcon({ filled, ...props }: SVGProps<SVGSVGElement> & { filled?: boolean }) {
   return (
     <Icon {...props} fill={filled ? 'currentColor' : 'none'}>
-      <path d="M12 20s-7-4.35-9.5-8.5C.8 8.2 2.3 5 5.6 5c1.8 0 3.3 1 4.4 2.6C11.1 6 12.6 5 14.4 5c3.3 0 4.8 3.2 3.1 6.5C19 15.65 12 20 12 20Z" />
+      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
     </Icon>
   );
 }
