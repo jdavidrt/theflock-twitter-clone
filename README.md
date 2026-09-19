@@ -11,7 +11,7 @@ A full-stack Twitter/X clone built for The Flock's technical challenge: custom a
 > - **No AI training.** This repository, in whole or in part, may not be used as training, fine-tuning, evaluation, or benchmarking data for any machine-learning or AI model.
 > - **Evaluation use is welcome.** Cloning, running, and reviewing the project locally as part of The Flock's assessment is the intended and expected use.
 
-> **Project status:** Step 12 complete (2026-09-18) — the last step before delivery. All 12 implementation steps are done: custom auth, profiles/follows, tweets/timeline/likes/search, reply threads (bonus), the mobile-first responsive UI, and the **SQLite-by-default** persistence layer (`internal/store/sqlite`, seeded from `server/data/sample.json` via `npm run seed` or automatically on a fresh clone's first boot). The full `internal/store/storetest` conformance suite and the entire `internal/httpapi` integration suite pass against both stores. This step added the required Playwright E2E auth-flow spec (`npm run test:e2e`, `/e2e/auth.spec.ts`), a responsive QA pass at 375/768/1280px that found and fixed two real bugs (a nav item losing its accessible name once its label is visually hidden at the tablet breakpoint, and an undersized 36px follow-button touch target), and this documentation pass. Backend coverage **91.5 % total statements** (D-32 floor is 85 %); client suite **8/8** passing; E2E spec passing against the real stack. This README describes the current, final setup — see commit history for how it got here.
+> **Project status:** Step 12 complete (2026-09-18) — the last step before delivery. All 12 implementation steps are done: custom auth, profiles/follows, tweets/timeline/likes/search, reply threads (bonus), the mobile-first responsive UI, and the **SQLite-by-default** persistence layer (`internal/store/sqlite`, seeded from `server/data/sample.json` via `npm run seed` or automatically on a fresh clone's first boot). The full `internal/store/storetest` conformance suite and the entire `internal/httpapi` integration suite pass against both stores. This step added the required Playwright E2E auth-flow spec (`npm run test:e2e`, `/e2e/auth.spec.ts`), a responsive QA pass at 375/768/1280px that found and fixed two real bugs (a nav item losing its accessible name once its label is visually hidden at the tablet breakpoint, and an undersized 36px follow-button touch target), and this documentation pass. Backend coverage **91.5 % total statements** (D-32 floor is 85 %); client suite **8/8** passing; E2E spec passing against the real stack. The Docker Compose bonus was added after Step 12 (D-70): `docker compose up --build` brings up the whole stack on a machine with only Docker installed — see [Runbook Option B](#option-b--docker-compose-one-command). This README describes the current, final setup — see commit history for how it got here.
 
 ---
 
@@ -43,8 +43,7 @@ A full-stack Twitter/X clone built for The Flock's technical challenge: custom a
 **Bonus (selected for this delivery):**
 
 - Reply threads (self-referential tweets with a thread view)
-
-**Post-MVP backlog:** Docker Compose one-command startup (deferred so nothing in the MVP depends on Docker).
+- Docker Compose — the whole stack (`docker compose up --build`) with nothing installed but Docker (see [Runbook Option B](#option-b--docker-compose-one-command))
 
 **Explicitly out of scope for this delivery:** real-time updates, image uploads, notifications. See [Known Trade-offs & Limitations](#known-trade-offs--limitations).
 
@@ -92,7 +91,11 @@ The stack itself isn't graded — see [my-docs/VALIDATION-OF-REQUIREMENTS.md](my
   /src/lib              Typed API client (api.ts), validation mirror (validation.ts, D-54), relative-time formatting (time.ts, D-30), infinite-scroll/tweet-feed hooks (useInfiniteScrollSentinel.ts, useTweetFeed.ts)
   /tests                Vitest + React Testing Library + MSW integration tests
 /e2e                    Playwright E2E specs (auth.spec.ts, D-36) + playwright.config.ts
-/.github/workflows      CI: Go (gofmt, vet, race tests, httpapi suite against sqlite too, coverage ≥ 85 %) + client (lint, build, tests)
+/.github/workflows      CI: Go (gofmt, vet, race tests, httpapi suite against sqlite too, coverage ≥ 85 %) + client (lint, build, tests) + docker (build both images, smoke-test the stack)
+docker-compose.yml      Full-stack bonus (D-70): server + client services, named volume, healthcheck
+server/Dockerfile       Two-stage build → static Go binary (+ seed tool) on alpine
+client/Dockerfile       Two-stage build → Vite bundle served by nginx (client/nginx.conf proxies /api)
+.dockerignore           Keeps host deps, build outputs, the local DB and secrets out of the build context
 .env.example            Every environment variable the app reads
 my-docs/                Internal planning docs (requirements validation, decisions, plan, AI collaboration log)
 ```
@@ -116,7 +119,11 @@ The same model is served by both store implementations: the in-memory store (map
 
 > The commands below reflect what exists **today** (Steps 1–11: scaffold, health endpoint, domain model + sample data, custom authentication, user profiles + the follow graph, tweets/timeline/likes, user search, the frontend app shell + auth UI, timeline/compose/like/delete, profile/follow/search pages, the bonus reply-threads feature, and the SQLite store that's now the default persistence backend). Later steps add to this section in the same commit that adds the feature.
 
+There are two ways to run the app. **Option A** (local) is the primary path and needs Go + Node. **Option B** (Docker Compose) needs only Docker and is the one-command bonus (D-70).
+
 ### Prerequisites
+
+**Option A — local:**
 
 - **Go 1.23+** — https://go.dev/dl/
 - **Node.js 20+** and npm 10+ (the frontend and the workspace scripts; CI runs on 20)
@@ -124,7 +131,11 @@ The same model is served by both store implementations: the in-memory store (map
 
 No database server: SQLite is a file created by the app.
 
-### Setup & run (local)
+**Option B — Docker Compose:**
+
+- **Docker Engine 25+ / Docker Desktop 4.27+**, which includes Compose v2 (the stack uses `env_file: required: false`, Compose ≥ 2.24). Nothing else — no Go, Node, or database install.
+
+### Option A — local (Go + Node)
 
 ```bash
 git clone https://github.com/jdavidrt/theflock-twitter-clone.git
@@ -135,6 +146,21 @@ npm run dev                   # API on http://localhost:3000, client on http://l
 ```
 
 `npm run dev` runs `go run ./cmd/api` in `server/` and the Vite dev server in `client/` side by side (Go modules are downloaded on first run). The client calls the API through a relative `/api` path that Vite proxies to port 3000, so there is no CORS setup and no client-side env var.
+
+### Option B — Docker Compose (one command)
+
+```bash
+git clone https://github.com/jdavidrt/theflock-twitter-clone.git
+cd theflock-twitter-clone
+docker compose up --build     # API on http://localhost:3000, client on http://localhost:5173
+```
+
+That is the whole setup — **no `.env`, no `npm install`, no seed step.** Compose builds two images (a static Go binary on `alpine`; the Vite build served by `nginx`, proxying `/api` to the API) and starts them; the client waits until the API's `/api/health` check passes. On the first boot the API creates and seeds its SQLite database, logging `seeded empty sqlite store … users=12 …`. Open http://localhost:5173 and log in with the [sample credentials](#sample-credentials); the `curl` examples below and `npm run test:e2e` work unchanged against the same URLs.
+
+- **Data persists** on the named volume `sqlite-data`: tweets/follows/likes survive `docker compose down` and `up` (a later boot logs `opened sqlite store` and does not re-seed).
+- **Reset to the sample dataset:** `docker compose exec server /app/seed`, or `docker compose down -v` (drops the volume) then `up` again.
+- **Configuration:** a root `.env`, if present, is honored for `JWT_SECRET`, `APP_ENV`, and `COOKIE_SECURE` (e.g. set `APP_ENV=production` with a real `JWT_SECRET` for JSON logs and the production secret guard); with no `.env`, the stack boots under `APP_ENV=development` with the placeholder secret. The SQLite and sample-data paths are fixed to their in-container locations and ignore any `.env` values. Ports are fixed at `3000`/`5173`; stop `npm run dev` first to avoid a collision.
+- **Stop:** `docker compose down` (keep data) or `docker compose down -v` (also delete the database volume).
 
 Smoke check: `curl http://localhost:3000/api/health` → `{"status":"ok"}`. Open `http://localhost:5173` in a browser: an unauthenticated visit redirects to `/login`; register or log in (try the [sample credentials](#sample-credentials) below) and you land on `/` inside the app shell (bottom tab bar under 640px, an icon rail from 640px, a labeled sidebar with a centered content column from 1024px — D-28), with a logout action always reachable. `/login` and `/register` redirect an already-authenticated visitor back to `/`.
 
@@ -214,7 +240,7 @@ curl -i -b cookies.txt "http://localhost:3000/api/search/users?q=aR"   # case-in
 - **In-memory store kept as a dev-only option:** `STORE=memory` still works (loads `server/data/sample.json` fresh at every boot, writes live only in process memory, a restart resets to the sample) — useful for quick local experimentation without touching the SQLite file, but `STORE=sqlite` is the default and the delivered behavior (D-66).
 - **Single-writer SQLite:** the store caps its connection pool at one (`SetMaxOpenConns(1)`), matching D-64's "one writer at a time is fine at this scale" — avoids `SQLITE_BUSY` without a retry loop; a multi-instance deployment would need a server database.
 - **Client-side validation is a UX mirror, not the source of truth (D-54):** `client/src/lib/validation.ts` pins the same length bounds, username regex and code-point counting as the server so bad input is caught before a round trip, but business rules like the reserved-username list are checked server-side only — the client just displays whatever `details` the server returns.
-- **No Docker Compose yet:** deferred to the post-MVP backlog so the core work never depends on it; the local Runbook needs only Go and Node.
+- **Docker Compose behind nginx shares one auth-rate-limit bucket (D-70):** the auth limiter keys on the request's remote address, which in Compose is the nginx container, so all browsers share one 20-request / 15-min login+register budget. Fine for a single evaluator; honoring `X-Forwarded-For` would be a trust-boundary change beyond a packaging bonus. Related: the SQLite store is single-writer on one named volume, so there is one `server` container per stack (no `--scale`), and Docker is for running the delivered app — dev still uses `npm run dev` on the host, not hot-reload containers.
 - **No image uploads, real-time updates, or notifications** in this delivery — deferred deliberately to keep the required features solid within 72 hours. See [my-docs/VALIDATION-OF-REQUIREMENTS.md](my-docs/VALIDATION-OF-REQUIREMENTS.md) §8 for the full out-of-scope list and rationale.
 - **E2E scope is one spec, by design (D-36):** `e2e/auth.spec.ts` covers the required real-browser auth flow only; compose/like/delete/follow/search/threads are exercised by the Vitest+MSW integration suite instead (faster, no flakiness from a real backend), not duplicated as browser E2E.
 - **React Query default retry policy:** the client only retries a failed request when the error isn't a 4xx (client errors — not-found, validation, forbidden — are never transient). Found during Step 12's responsive QA: visiting an unknown username left the profile page on "Loading profile…" for ~7 seconds (three retries with backoff) before showing "User not found" under the library's out-of-the-box default of retrying every error including 404s.

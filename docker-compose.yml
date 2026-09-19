@@ -1,0 +1,56 @@
+# One-command full stack (bonus, D-70): `docker compose up --build`.
+#
+#   git clone ... && cd theflock-twitter-clone && docker compose up --build
+#
+# needs nothing else — no .env required. The API (Go + SQLite) is published on host 3000 and the
+# client (nginx serving the Vite build, proxying /api -> server:3000) on host 5173, so every URL
+# in the README works the same as `npm run dev`. The SQLite file lives on the named volume
+# `sqlite-data`: it is seeded from server/data/sample.json on the first boot and preserved across
+# `down`/`up`. Reset it with `docker compose exec server /app/seed` or `docker compose down -v`.
+#
+# A root .env, if present, is honored (APP_ENV=production + a real JWT_SECRET are picked up); with
+# no .env the defaults below apply, letting the placeholder secret boot under APP_ENV=development.
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-random-32+-char-string}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      STORE: sqlite
+      # Container-only paths, pinned here so they win over a host .env loaded above: a local
+      # .env sets these to ./data/* (correct on the host, but inside the container that is the
+      # ephemeral image layer, not the /data volume). environment overrides env_file in compose.
+      SQLITE_PATH: /data/twitter.db
+      SAMPLE_DATA_PATH: /app/data/sample.json
+    ports:
+      - '3000:3000'
+    volumes:
+      - sqlite-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O - http://localhost:3000/api/health || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    ports:
+      - '5173:80'
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  sqlite-data:

@@ -1,0 +1,33 @@
+# Build context is the repo root (package-lock.json lives here — npm workspaces, D-45).
+# Keep out of both image builds: VCS, host-installed deps, build outputs, the local SQLite
+# file, secrets, and everything that is neither app source nor the npm manifests (D-70).
+.git
+.gitignore
+
+# Host node_modules (the client image runs its own `npm ci`)
+node_modules
+**/node_modules
+
+# Build outputs
+client/dist
+server/bin
+**/*.tsbuildinfo
+
+# Local SQLite database — the container seeds its own on a named volume
+server/data/twitter.db
+server/data/twitter.db-shm
+server/data/twitter.db-wal
+
+# Secrets and env files (compose passes configuration itself; defaults are baked in)
+.env
+.env.*
+
+# Not needed in any image
+my-docs
+e2e
+.github
+CLAUDE.md
+**/coverage.out
+*.log
+playwright-report
+test-results

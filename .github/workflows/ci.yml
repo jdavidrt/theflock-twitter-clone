@@ -76,3 +76,30 @@ jobs:
 
       - name: test
         run: npm run test:client
+
+  docker:
+    name: Docker Compose (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ubuntu-latest ships Docker + Compose v2. Build both images and bring the stack up,
+      # waiting for the server's /api/health healthcheck (D-70). No .env in CI, so the stack
+      # boots on its compose defaults (APP_ENV=development, placeholder secret).
+      - name: compose up --build --wait
+        run: docker compose up --build --wait --wait-timeout 180
+
+      # Both probes go through nginx on 5173: the SPA at / and the proxied API health endpoint,
+      # so the client image, the nginx /api proxy and the server are all exercised.
+      - name: smoke test through nginx
+        run: |
+          curl --fail --show-error --silent http://localhost:5173/ -o /dev/null
+          curl --fail --show-error --silent http://localhost:5173/api/health
+
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: compose down
+        if: always()
+        run: docker compose down -v

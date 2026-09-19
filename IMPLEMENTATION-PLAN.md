@@ -41,6 +41,7 @@ Rough budget: ~24 working hours of the remaining window. Steps 1–6 (Go backend
 | 10 — Bonus: reply threads (backend + frontend + tests)              | ✅ Done 2026-09-18 — coverage 93.2 %, client suite 8/8                            | This entry                                          |
 | 11 — SQLite store, seed command, switch the default                 | ✅ Done 2026-09-18 — coverage 91.5 %, `storetest` + `httpapi` suites green on both stores | This entry                                          |
 | 12 — E2E, responsive QA, coverage/docs                              | ✅ Done 2026-09-18 — Playwright auth spec passing, 2 responsive bugs fixed, coverage 91.5 % | This entry                                          |
+| B-1 — Bonus: Docker Compose (B-1.1 … B-1.5)                         | ✅ Done 2026-09-18 — stack verified: seed, health, login/post through nginx, persistence across restart, E2E green, seed reset | Entry 29                                            |
 
 All 12 steps are committed on `main` across five commits (`42bcbce` … `28372df`).
 
@@ -252,13 +253,53 @@ Files changed: `e2e/*`, `package.json`, `client/src/main.tsx`, `client/src/compo
 
 ## Post-MVP backlog (only after every step above is done)
 
-### B-1 — Docker Compose full stack (bonus; D-63, D-40/D-41/D-46 as amended)
+### B-1 — Docker Compose full stack (bonus; D-63, D-40/D-41/D-46 as amended, **D-70**)
 
-> Complete the Docker Compose bonus: services `server` (two-stage `golang:1.23-alpine` → static `CGO_ENABLED=0` binary in a minimal runtime image, `sample.json` included, a named volume for the SQLite file, entrypoint seeds only if `users` is empty, `GET /api/health` healthcheck) and `client` (Vite build served by nginx on host 5173, proxying `/api` to `server:3000`), with healthchecks, `depends_on: condition: service_healthy`, and `.dockerignore`. `docker compose up --build` from a clean clone must produce a seeded, working app with no other steps. Add a README Runbook "Option A — Docker Compose" that matches exactly what you built.
+_Picked up 2026-09-18, after Step 12, with all 12 MVP steps done and the Docker engine on the dev machine working again (Docker 28 / Compose v2.34). Planned as five prompt-sized sub-steps so each lands as its own small commit; the behavioral choices are pinned in DECISIONS.md D-70 and win over the text here._
 
-Starting material: `my-docs/archive/docker/` (a postgres-era compose file, now only useful for the healthcheck/volume shape).
+**Shape (no Go or TypeScript changes, no new environment variables):** `server/Dockerfile` (two-stage: `golang:1.23-alpine` → `CGO_ENABLED=0 go build` of `cmd/api` **and** `cmd/seed` → `alpine` runtime with the static binaries, `data/sample.json`, a `/data` directory for the SQLite file, non-root user), `client/Dockerfile` + `client/nginx.conf` (`node:20-alpine` `npm ci --workspace=client` + `vite build` → `nginx:alpine` serving `dist/` with the SPA `try_files` fallback and `location /api { proxy_pass http://server:3000; }` — D-42 unchanged), a root `docker-compose.yml` (`server` with a named volume `sqlite-data:/data`, `SQLITE_PATH=/data/twitter.db`, `wget`-based `GET /api/health` healthcheck; `client` published on host `5173`, `depends_on: server: condition: service_healthy`; `.env` optional via `env_file: required: false` so the one command needs no preparation), and a root `.dockerignore`. Both images build from the repo root as context because `package-lock.json` lives there (npm workspaces).
 
-**Done when:** `git clone` → `cp .env.example .env` → `docker compose up --build` → log in with the sample credentials works on a machine with only Docker installed.
+#### B-1.1 — Server image
+
+> Add `server/Dockerfile` and a root `.dockerignore` (`node_modules`, `dist`, `bin`, `.env`, `my-docs`, `server/data/twitter.db*`, `.git`, `e2e`, `.github`, coverage files). Two stages: `golang:1.23-alpine` builds `./cmd/api` and `./cmd/seed` with `CGO_ENABLED=0` (module cache layer separated from the source layer so rebuilds are fast); `alpine` runtime copies the two binaries and `server/data/sample.json`, creates `/data` owned by a non-root user, sets `SQLITE_PATH=/data/twitter.db` and `SAMPLE_DATA_PATH=/app/data/sample.json` as image defaults, `EXPOSE 3000`, `CMD ["/app/api"]`. Verify: `docker build -f server/Dockerfile -t theflock-server .`, `docker run --rm -p 3000:3000 -e JWT_SECRET=… theflock-server` logs `seeded empty sqlite store … users=12`, and `curl localhost:3000/api/health` returns `{"status":"ok"}`.
+
+**Done when:** the image builds, boots seeded, answers the health check, and runs as non-root. One commit.
+
+#### B-1.2 — Client image
+
+> Add `client/Dockerfile` (build stage: `node:20-alpine`, copy the root `package.json`/`package-lock.json` and `client/package.json`, `npm ci --workspace=client`, copy `client/`, `npm run build --workspace=client`; runtime: `nginx:alpine`, copy `client/dist` to `/usr/share/nginx/html` and `client/nginx.conf` to `/etc/nginx/conf.d/default.conf`) and `client/nginx.conf` (listen 80; `location /api/ { proxy_pass http://server:3000; }` with `proxy_set_header Host`/`X-Real-IP`/`X-Forwarded-For`; `location / { try_files $uri /index.html; }` for React Router deep links; gzip on). Verify: `docker build -f client/Dockerfile -t theflock-client .` and `docker run --rm -p 8080:80 theflock-client` serves `index.html` at `/` and at `/login`.
+
+**Done when:** the image builds and serves the SPA with deep links. One commit.
+
+#### B-1.3 — Compose file
+
+> Add the root `docker-compose.yml`: `server` (build context `.`, dockerfile `server/Dockerfile`; `env_file: [{path: .env, required: false}]` and explicit `environment` entries `APP_ENV=${APP_ENV:-development}`, `JWT_SECRET=${JWT_SECRET:-<the .env.example placeholder>}`, `COOKIE_SECURE=${COOKIE_SECURE:-false}`, `STORE=sqlite`; ports `3000:3000`; volume `sqlite-data:/data`; healthcheck `wget -qO- http://localhost:3000/api/health` every 5s, 10 retries, `start_period: 5s`) and `client` (build context `.`, dockerfile `client/Dockerfile`; ports `5173:80`; `depends_on: server: condition: service_healthy`); top-level `volumes: sqlite-data:`. `restart: unless-stopped` on both. Verify from a clean state: `docker compose down -v && docker compose up --build`; open `http://localhost:5173`, log in as `alice@example.com` / `Password123!`, post a tweet; run `npm run test:e2e` against the Docker stack unchanged (same URL); `docker compose down && docker compose up -d` → the posted tweet is still there (volume); `docker compose exec server /app/seed` resets it. Remove `my-docs/archive/docker/` (gitignored; superseded).
+
+**Done when:** `docker compose up --build` from a clean clone with no `.env` produces a seeded, working app at `http://localhost:5173`; data survives `down`/`up`; `down -v` or the seed binary resets it. One commit.
+
+#### B-1.4 — Documentation
+
+> README: move Docker Compose from "Post-MVP backlog" to the **Bonus** list in Features; add a Runbook **"Option B — Docker Compose"** subsection (prerequisite: Docker Desktop / Engine 25+ with Compose v2; `git clone` → `docker compose up --build`; what the first boot logs; the seed/reset commands `docker compose exec server /app/seed` and `docker compose down -v`; that the curl examples and `npm run test:e2e` work unchanged against `localhost:3000`/`localhost:5173`; how `APP_ENV=production` + a real `JWT_SECRET` in `.env` are honored); update the Architecture layout tree; replace the "No Docker Compose yet" trade-off with the D-70 limitations (single shared auth-rate-limit bucket behind nginx, single-instance SQLite on a named volume). `.env.example`: one header line saying Compose reads this file if present and overrides `SQLITE_PATH`/`SAMPLE_DATA_PATH` for the container. DECISIONS.md: mark D-63 resolved (inline amendment), D-70 already written. CLAUDE.md: layout tree + the "Docker Compose is on the post-MVP backlog" sentences. This file: progress row + "As executed" notes. Log entry in AGENT-COLLABORATION-HISTORY.MD.
+
+**Done when:** every command in "Option B" has been run verbatim and works; no doc still says Docker is deferred. One commit (docs only).
+
+#### B-1.5 — CI smoke job
+
+> Add a `docker` job to `.github/workflows/ci.yml` (`ubuntu-latest`; Compose v2 is preinstalled on the runner): `docker compose up --build --wait --wait-timeout 120`, `curl --fail http://localhost:5173/api/health` and `curl --fail http://localhost:5173/` (through nginx, so the proxy and the SPA are both exercised), always `docker compose down -v` (`if: always()`). Add the job to the CI description in README/CLAUDE.md.
+
+**Done when:** the job is green on `main`. One commit.
+
+**Rubric:** Bonus features (Docker one-command startup), Documentation (Runbook prerequisites/commands), Development process (five small commits, CI proof).
+
+_As executed (2026-09-18, all verified on Docker 28.0.4 / Compose v2.34):_
+
+- **B-1.1 — server image:** `server/Dockerfile` (build `golang:1.23-alpine` → `CGO_ENABLED=0 -trimpath` build of `cmd/api` + `cmd/seed`; runtime `alpine:3.20`, non-root `app` user, `/data` dir, `sample.json`, `ENV SQLITE_PATH=/data/twitter.db SAMPLE_DATA_PATH=/app/data/sample.json`) + root `.dockerignore`. Verified: builds; `docker run -e JWT_SECRET=…` logs `seeded empty sqlite store … users=12`; `/api/health` → `{"status":"ok"}`; `whoami` → `app`.
+- **B-1.2 — client image:** `client/Dockerfile` (build `node:20-alpine` → Vite build; runtime `nginx:alpine`) + `client/nginx.conf` (SPA `try_files` fallback; `/api/` proxied to `server:3000` via **deferred DNS resolution** — `resolver 127.0.0.11` + a variable upstream — so nginx starts even before the server is up and survives its restarts). **Hit npm bug #4828:** the Windows-authored `package-lock.json` left rollup's linux-musl native binary uninstalled, so `vite build` failed; fixed by installing `@rollup/rollup-linux-x64-musl` pinned to the resolved rollup version right after `npm ci`. Verified: builds; standalone container serves `index.html` at `/` and `/login` (200).
+- **B-1.3 — compose:** root `docker-compose.yml` (`server` with named volume `sqlite-data:/data`, `wget` healthcheck, `env_file: required: false`; `client` on `5173:80`, `depends_on: service_healthy`; ports `3000`/`5173`). **Caught in verification:** a host `.env` loaded via `env_file` overrode the image's `SQLITE_PATH` with `./data/twitter.db` (ephemeral image layer, not the volume) → every boot re-seeded, writes lost on restart. Fixed by pinning `SQLITE_PATH`/`SAMPLE_DATA_PATH`/`STORE` in the compose `environment:` block (which wins over `env_file`). Deleted the superseded `my-docs/archive/docker/`. Verified end-to-end: `up --build --wait` → both healthy; login + post a tweet through nginx (`:5173`); `down` then `up` → second boot logs `opened sqlite store` (no re-seed) and the tweet persisted; `docker compose exec server /app/seed` reset to the sample dataset; `npm run test:e2e` passed unchanged against the Docker stack.
+- **B-1.4 — docs:** README (Docker → Bonus in Features; new Runbook "Option A — local" / "Option B — Docker Compose"; Architecture tree; Known Trade-offs replaced "No Docker Compose yet" with the rate-limit-behind-nginx / single-writer / dev-on-host limitations), `.env.example` header note, DECISIONS.md D-70 (+ inline amendments to D-41/D-46/D-63), CLAUDE.md (bonus list + layout tree + decision count → D-70), this file, AGENT-COLLABORATION-HISTORY.MD Entry 29.
+- **B-1.5 — CI:** a third `docker` job in `.github/workflows/ci.yml` (`docker compose up --build --wait`, curl `/` and `/api/health` through nginx, logs on failure, `down -v` always). Job logic verified by running the identical commands locally; not run on the Actions runner from here.
+
+Files added: `docker-compose.yml`, `server/Dockerfile`, `client/Dockerfile`, `client/nginx.conf`, `.dockerignore`. Files changed: `README.md`, `.env.example`, `.github/workflows/ci.yml`, `CLAUDE.md`, `IMPLEMENTATION-PLAN.md`, `my-docs/DECISIONS.md`, `my-docs/AGENT-COLLABORATION-HISTORY.MD`. Deleted: `my-docs/archive/docker/`. No Go or TypeScript source changed; no new environment variable.
 
 ### Dropped (2026-09-16, D-65)
 
